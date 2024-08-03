@@ -1,7 +1,7 @@
 Automatic Postfix Server Configuration Script
 
-This script automatically configures a Postfix mail server on a Linux server. It is designed to be user-friendly, even for beginners,
-and includes several features to adapt to different environments.
+
+This script automatically configures a Postfix mail server on a Linux server. It is designed to be user-friendly, even for beginners, and includes several features to adapt to different environments.
 
 Key Features
 
@@ -11,19 +11,18 @@ Multi-Distribution Support: The script detects the Linux distribution (Debian/Ub
 User Input Validation: The script validates the hostname and other user-provided information.
 Configuration File Backup: Critical files are automatically backed up before any modifications are made.
 Automatic DKIM Record Generation: The script generates the DKIM public key and includes it directly in the final report.
+SMTP Configuration File Creation: At the end of the script execution, a file containing all necessary SMTP information is generated for easy setup.
 Verbose Mode: Option to display more detailed information about the script's steps.
 Command-Line Options: You can pre-specify certain options for a more automated operation.
-Prerequisites
 
+
+Prerequisites
 Before starting, make sure you have:
 
 A Linux server: The script is compatible with Ubuntu, Debian, CentOS, and Red Hat.
 Root access or sudo privileges on the server.
 A domain name that you can configure to send emails (e.g., your-domain.com).
-
-
 Installation
-
 Download the Script
 Download the setup_postfix_complete.py script to your server.
 
@@ -46,9 +45,7 @@ You can pass options when running the script to automate some inputs:
 
 bash
 sudo python3 setup_postfix_complete.py --hostname mail.your-domain.com
---external-domain: Indicate if the domain is managed by an external provider (yes or no). 
-
-For example:
+--external-domain: Indicate if the domain is managed by an external provider (yes or no). For example:
 
 bash
 sudo python3 setup_postfix_complete.py --external-domain yes
@@ -60,10 +57,11 @@ Monitor the Configuration
 The script generates a real-time log file. You can monitor the script's execution here: /tmp/postfix_setup_log.txt.
 
 Final Report
+Once the configuration is complete, the script generates two important files:
 
-Once the configuration is complete, the script generates a report containing essential information, 
-including the necessary DNS records for SPF, DKIM, and DMARC. 
-This report is saved here: /tmp/postfix_setup_report.txt.
+Configuration Report: Contains essential information, including the necessary DNS records for SPF, DKIM, and DMARC. This report is saved here: /tmp/postfix_setup_report.txt.
+
+SMTP Information File: Contains all necessary SMTP details, such as hostname, domain, IP address, and relayhost credentials (if used). This file is saved here: /tmp/smtp_info.txt.
 
 DNS Record Configuration
 If your domain is managed by an external provider, add the provided SPF, DKIM, and DMARC records to your domain's DNS configuration.
@@ -74,14 +72,17 @@ To ensure everything is working correctly, you can check Postfix logs:
 bash
 tail -f /var/log/mail.log
 Frequently Asked Questions (FAQ)
-
 What should I do if I encounter an error?
-Check the log file for more details. If the error persists, seek help online or consult a system administrator.
-How can I further customize the configuration?
-After running the script, you can modify the /etc/postfix/main.cf file to tailor the Postfix configuration.
-How do I know if my server is properly configured?
-You can send a test email and use online services like Mail-tester.com to verify that your emails are correctly configured and not marked as spam.
 
+Check the log file for more details. If the error persists, seek help online or consult a system administrator.
+
+How can I further customize the configuration?
+
+After running the script, you can modify the /etc/postfix/main.cf file to tailor the Postfix configuration.
+
+How do I know if my server is properly configured?
+
+You can send a test email and use online services like Mail-tester.com to verify that your emails are correctly configured and not marked as spam.
 
 Conclusion
 
