@@ -5,13 +5,24 @@ This script automatically configures a Postfix mail server on a Linux server. It
 
 Key Features
 
-Python 3 Installation Check: If Python 3 is not installed, the script automatically installs it before proceeding.
+Python 3 Installation Check: 
+
+If Python 3 is not installed, the script automatically installs it before proceeding.
 Prerequisite Check: The script verifies and installs the necessary packages for Postfix.
 Multi-Distribution Support: The script detects the Linux distribution (Debian/Ubuntu or CentOS/Red Hat) and adjusts commands accordingly.
-User Input Validation: The script validates the hostname and other user-provided information.
+
+User Input Validation:
+
+The script validates the hostname and other user-provided information.
 Configuration File Backup: Critical files are automatically backed up before any modifications are made.
-Automatic DKIM Record Generation: The script generates the DKIM public key and includes it directly in the final report.
-SMTP Configuration File Creation: At the end of the script execution, a file containing all necessary SMTP information is generated for easy setup.
+
+Automatic DKIM Record Generation: 
+
+The script generates the DKIM public key and includes it directly in the final report.
+
+SMTP Configuration File Creation:
+
+At the end of the script execution, a file containing all necessary SMTP information is generated for easy setup.
 Verbose Mode: Option to display more detailed information about the script's steps.
 Command-Line Options: You can pre-specify certain options for a more automated operation.
 
