@@ -1,96 +1,88 @@
-Script de Configuration Automatique d'un Serveur Postfix
+Automatic Postfix Server Configuration Script
 
+This script automatically configures a Postfix mail server on a Linux server. It is designed to be user-friendly, even for beginners,
+and includes several features to adapt to different environments.
 
-Ce script configure automatiquement un serveur de messagerie Postfix sur un serveur Linux.
-Il est conçu pour être facile à utiliser, même pour les débutants, et offre plusieurs fonctionnalités pour s'adapter à différents environnements.
+Key Features
 
+Python 3 Installation Check: If Python 3 is not installed, the script automatically installs it before proceeding.
+Prerequisite Check: The script verifies and installs the necessary packages for Postfix.
+Multi-Distribution Support: The script detects the Linux distribution (Debian/Ubuntu or CentOS/Red Hat) and adjusts commands accordingly.
+User Input Validation: The script validates the hostname and other user-provided information.
+Configuration File Backup: Critical files are automatically backed up before any modifications are made.
+Automatic DKIM Record Generation: The script generates the DKIM public key and includes it directly in the final report.
+Verbose Mode: Option to display more detailed information about the script's steps.
+Command-Line Options: You can pre-specify certain options for a more automated operation.
+Prerequisites
 
-Fonctionnalités Principales
+Before starting, make sure you have:
 
-Vérification et installation de Python 3 : Si Python 3 n'est pas installé, le script l'installe automatiquement avant de continuer.
-Vérification des prérequis : Le script vérifie et installe automatiquement les paquets nécessaires pour Postfix.
-Support multi-distribution : Le script détecte la distribution Linux (Debian/Ubuntu ou CentOS/Red Hat) et ajuste les commandes en conséquence.
-Validation des entrées utilisateur : Le script valide le nom d'hôte et les autres informations saisies par l'utilisateur.
-Sauvegarde des fichiers de configuration : Avant de modifier les fichiers critiques, une sauvegarde est automatiquement créée.
-Génération automatique des enregistrements DKIM : Le script génère la clé publique DKIM et l'inclut directement dans le rapport final.
-Mode verbeux : Option pour afficher plus de détails sur les étapes du script.
-Options de ligne de commande : Vous pouvez spécifier certaines options à l'avance pour un fonctionnement plus automatisé.
-
-
-Prérequis
-
-Avant de commencer, assurez-vous d'avoir :
-
-Un serveur Linux : Le script est compatible avec Ubuntu, Debian, CentOS, et Red Hat.
-Accès root ou des privilèges sudo sur le serveur.
-Un nom de domaine que vous pouvez configurer pour envoyer des emails (par exemple, votre-domaine.com).
+A Linux server: The script is compatible with Ubuntu, Debian, CentOS, and Red Hat.
+Root access or sudo privileges on the server.
+A domain name that you can configure to send emails (e.g., your-domain.com).
 
 
 Installation
 
-1. Télécharger le Script
-Téléchargez le script setup_postfix_complete.py sur votre serveur.
+Download the Script
+Download the setup_postfix_complete.py script to your server.
 
 bash
-Copier le code
-wget <lien-vers-le-script> -O setup_postfix_complete.py
-2. Donner les Droits d'Exécution
-Assurez-vous que le script est exécutable :
+wget <link-to-script> -O setup_postfix_complete.py
+Grant Execution Rights
+Ensure the script is executable:
 
 bash
-Copier le code
 chmod +x setup_postfix_complete.py
-3. Exécuter le Script
-Pour lancer le script, utilisez la commande suivante :
+Run the Script
+To launch the script, use the following command:
 
 bash
-Copier le code
 sudo python3 setup_postfix_complete.py
-Options de Ligne de Commande
-Vous pouvez passer des options lors de l'exécution du script pour automatiser certaines entrées :
+Command-Line Options
+You can pass options when running the script to automate some inputs:
 
---hostname : Spécifiez le nom d'hôte du serveur de messagerie. Par exemple :
-
-bash
-Copier le code
-sudo python3 setup_postfix_complete.py --hostname mail.votre-domaine.com
---external-domain : Indiquez si le domaine est géré par un fournisseur externe (oui ou non). Par exemple :
+--hostname: Specify the mail server hostname. For example:
 
 bash
-Copier le code
-sudo python3 setup_postfix_complete.py --external-domain oui
---verbose : Activez le mode verbeux pour voir plus de détails sur chaque étape :
+sudo python3 setup_postfix_complete.py --hostname mail.your-domain.com
+--external-domain: Indicate if the domain is managed by an external provider (yes or no). 
+
+For example:
 
 bash
-Copier le code
+sudo python3 setup_postfix_complete.py --external-domain yes
+--verbose: Enable verbose mode to see more details on each step:
+
+bash
 sudo python3 setup_postfix_complete.py --verbose
-4. Suivre la Configuration
-Le script génère un fichier de log en temps réel. Vous pouvez suivre l'exécution du script ici : /tmp/postfix_setup_log.txt.
+Monitor the Configuration
+The script generates a real-time log file. You can monitor the script's execution here: /tmp/postfix_setup_log.txt.
 
-5. Rapport Final
-Une fois la configuration terminée, le script génère un rapport contenant les informations essentielles,
-y compris les enregistrements DNS nécessaires pour SPF, DKIM, et DMARC. Ce rapport est sauvegardé ici : /tmp/postfix_setup_report.txt.
+Final Report
 
-7. Configuration des Enregistrements DNS
-Si votre domaine est géré par un fournisseur externe, ajoutez les enregistrements SPF, DKIM, et DMARC fournis dans le rapport à la configuration DNS de votre domaine.
+Once the configuration is complete, the script generates a report containing essential information, 
+including the necessary DNS records for SPF, DKIM, and DMARC. 
+This report is saved here: /tmp/postfix_setup_report.txt.
 
-8. Vérification du Fonctionnement
-Pour vérifier que tout fonctionne correctement, vous pouvez consulter les logs de Postfix :
+DNS Record Configuration
+If your domain is managed by an external provider, add the provided SPF, DKIM, and DMARC records to your domain's DNS configuration.
+
+Verify Operation
+To ensure everything is working correctly, you can check Postfix logs:
 
 bash
-Copier le code
 tail -f /var/log/mail.log
-Questions Fréquentes (FAQ)
-Que faire si je rencontre une erreur ?
-Consultez le fichier de log pour plus de détails. Si l'erreur persiste, vous pouvez chercher de l'aide en ligne ou demander à un administrateur système.
-Comment personnaliser davantage la configuration ?
-Après l'exécution du script, vous pouvez modifier le fichier /etc/postfix/main.cf pour personnaliser la configuration de Postfix.
-Comment savoir si mon serveur est bien configuré ?
-Vous pouvez envoyer un email de test et utiliser des services en ligne comme Mail-tester.com pour vérifier que vos emails sont correctement configurés et ne tombent pas dans les spams.
+Frequently Asked Questions (FAQ)
+
+What should I do if I encounter an error?
+Check the log file for more details. If the error persists, seek help online or consult a system administrator.
+How can I further customize the configuration?
+After running the script, you can modify the /etc/postfix/main.cf file to tailor the Postfix configuration.
+How do I know if my server is properly configured?
+You can send a test email and use online services like Mail-tester.com to verify that your emails are correctly configured and not marked as spam.
 
 
 Conclusion
 
-Ce script vous permet de configurer un serveur de messagerie Postfix de manière automatique et sécurisée, 
-même si vous êtes débutant. En suivant ces instructions, vous pouvez rapidement mettre en place un serveur fonctionnel. 
-N'hésitez pas à personnaliser le script selon vos besoins et à consulter le rapport final pour vous assurer que tout est correctement configuré.
+This script allows you to automatically and securely configure a Postfix mail server, even if you are a beginner. By following these instructions, you can quickly set up a functional server. Feel free to customize the script to your needs and review the final report to ensure everything is correctly configured.
