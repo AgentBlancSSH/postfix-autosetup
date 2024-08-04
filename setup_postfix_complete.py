@@ -111,7 +111,7 @@ def validate_hostname(hostname):
         return True
     return False
 
-def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address):
+def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, dkim_record):
     with open(smtp_info_file_path, 'w') as smtp_info_file:
         smtp_info_file.write(f"Informations SMTP pour le serveur {hostname}\n")
         smtp_info_file.write(f"=============================================\n")
@@ -128,7 +128,6 @@ def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address):
         
         smtp_info_file.write("\nParamètres supplémentaires :\n")
         smtp_info_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        dkim_record = generate_dkim_record(domain)
         smtp_info_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
         smtp_info_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
 
@@ -205,7 +204,7 @@ def setup_server(args):
         
         # Générer le rapport et les infos SMTP
         generate_report(report_file_path, hostname, domain, ip_address, dkim_record)
-        generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address)
+        generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, dkim_record)
         
         update_log_page(f"Rapport de configuration généré à l'emplacement : {report_file_path}", log_file_path)
         update_log_page(f"Informations SMTP générées à l'emplacement : {smtp_info_file_path}", log_file_path)
