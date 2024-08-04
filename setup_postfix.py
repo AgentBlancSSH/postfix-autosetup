@@ -1,602 +1,299 @@
 import os
 import subprocess
 import sys
-import time
 import argparse
 import shutil
 
-def run_command(command, log_file, verbose=False):
+def executer_commande(command, fichier_log, verbose=False):
     try:
         with subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
             for line in process.stdout:
-                log_file.write(line)
+                fichier_log.write(line)
                 if verbose:
                     print(line, end='')
             for error in process.stderr:
-                log_file.write(error)
+                fichier_log.write(error)
                 if verbose:
                     print(f"Erreur : {error}", end='')
             process.wait()
             if process.returncode != 0:
                 raise subprocess.CalledProcessError(process.returncode, command)
     except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file)
+        gerer_erreur(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", fichier_log)
 
-def handle_error(message, log_file):
-    log_file.write(message + "\n")
+def gerer_erreur(message, fichier_log):
+    fichier_log.write(message + "\n")
     print(message)
     sys.exit(1)
 
-def create_log_page(log_file_path):
+def creer_fichier_log(chemin_fichier_log):
     try:
-        with open(log_file_path, 'w') as log_file:
-            log_file.write("Initialisation du script de configuration du serveur Postfix...\n")
+        with open(chemin_fichier_log, 'w') as fichier_log:
+            fichier_log.write("Initialisation du script de configuration du serveur Postfix...\n")
     except IOError as e:
         print(f"Erreur lors de la création du fichier log: {str(e)}")
         sys.exit(1)
 
-def update_log_page(message, log_file_path):
-    with open(log_file_path, 'a') as log_file:
-        log_file.write(message + "\n")
+def mise_a_jour_fichier_log(message, chemin_fichier_log):
+    with open(chemin_fichier_log, 'a') as fichier_log:
+        fichier_log.write(message + "\n")
     print(message)
 
-def generate_report(report_file_path, hostname, domain, ip_address, external_domain):
-    dkim_record = generate_dkim_record(domain)
-    with open(report_file_path, 'w') as report_file:
-        report_file.write(f"Rapport de configuration du serveur Postfix\n")
-        report_file.write(f"=============================================\n")
-        report_file.write(f"Nom d'hôte : {hostname}\n")
-        report_file.write(f"Domaine : {domain}\n")
-        report_file.write(f"Adresse IP : {ip_address}\n")
+def generer_rapport(chemin_rapport, nom_hote, domaine, adresse_ip, domaine_externe):
+    enregistrement_dkim = generer_enregistrement_dkim(domaine)
+    with open(chemin_rapport, 'w') as rapport:
+        rapport.write(f"Rapport de configuration du serveur Postfix\n")
+        rapport.write(f"=============================================\n")
+        rapport.write(f"Nom d'hôte : {nom_hote}\n")
+        rapport.write(f"Domaine : {domaine}\n")
+        rapport.write(f"Adresse IP : {adresse_ip}\n")
         
-        if external_domain == "oui":
-            report_file.write(f"\nLe domaine est géré par un fournisseur externe. Voici les configurations DNS à effectuer chez votre fournisseur DNS:\n")
+        if domaine_externe == "oui":
+            rapport.write(f"\nLe domaine est géré par un fournisseur externe. Voici les configurations DNS à effectuer chez votre fournisseur DNS:\n")
         else:
-            report_file.write(f"\nConfigurations DNS recommandées :\n")
+            rapport.write(f"\nConfigurations DNS recommandées :\n")
 
-        report_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        report_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
+        rapport.write(f"- SPF : v=spf1 a mx ip4:{adresse_ip} ~all\n")
+        rapport.write(f"- DKIM : default._domainkey.{domaine} IN TXT ( \"{enregistrement_dkim}\" )\n")
+        rapport.write(f"- DMARC : _dmarc.{domaine} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domaine}\"")
 
-def generate_dkim_record(domain):
-    key_file_path = f"/etc/opendkim/keys/{domain}/default.txt"
-    if os.path.exists(key_file_path):
-        with open(key_file_path) as key_file:
-            dkim_record = key_file.read().replace("\n", "")
-        return dkim_record
+def generer_enregistrement_dkim(domaine):
+    chemin_cle = f"/etc/opendkim/keys/{domaine}/default.txt"
+    if os.path.exists(chemin_cle):
+        with open(chemin_cle) as fichier_cle:
+            enregistrement_dkim = fichier_cle.read().replace("\n", "")
+        return enregistrement_dkim
     else:
         return "[clé DKIM non trouvée]"
 
-def backup_file(file_path):
+def sauvegarder_fichier(chemin_fichier):
     try:
-        backup_path = file_path + ".bak"
-        shutil.copy(file_path, backup_path)
-        print(f"Sauvegarde du fichier {file_path} vers {backup_path}")
+        chemin_sauvegarde = chemin_fichier + ".bak"
+        shutil.copy(chemin_fichier, chemin_sauvegarde)
+        print(f"Sauvegarde du fichier {chemin_fichier} vers {chemin_sauvegarde}")
     except IOError as e:
         print(f"Erreur lors de la sauvegarde du fichier: {str(e)}")
         sys.exit(1)
 
-def check_prerequisites(log_file):
-    required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw"]
-    for package in required_packages:
+def verifier_prerequis(fichier_log):
+    paquets_requis = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw"]
+    for paquet in paquets_requis:
         try:
-            result = subprocess.run(['dpkg', '-l', package], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run(['dpkg', '-l', paquet], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode != 0:
-                update_log_page(f"Le paquet {package} n'est pas installé. Installation en cours...", log_file)
-                run_command(f"sudo apt-get install {package} -y", log_file)
+                mise_a_jour_fichier_log(f"Le paquet {paquet} n'est pas installé. Installation en cours...", fichier_log)
+                executer_commande(f"sudo apt-get install {paquet} -y", fichier_log)
             else:
-                update_log_page(f"Le paquet {package} est déjà installé.", log_file)
+                mise_a_jour_fichier_log(f"Le paquet {paquet} est déjà installé.", fichier_log)
         except subprocess.CalledProcessError as e:
-            handle_error(f"Erreur lors de la vérification des prérequis: {str(e)}", log_file)
+            gerer_erreur(f"Erreur lors de la vérification des prérequis: {str(e)}", fichier_log)
 
-def detect_os():
+def detecter_os():
     with open("/etc/os-release") as f:
-        os_info = f.read().lower()
-        if "ubuntu" in os_info or "debian" in os_info:
+        infos_os = f.read().lower()
+        if "ubuntu" in infos_os ou "debian" in infos_os:
             return "debian"
-        elif "centos" in os_info or "rhel" in os_info:
+        elif "centos" in infos_os ou "rhel" in infos_os:
             return "rhel"
         else:
-            return "unknown"
+            return "inconnu"
 
-def validate_hostname(hostname):
+def valider_nom_hote(nom_hote):
     import re
-    if re.match(r'^[a-zA-Z0-9.-]+$', hostname):
+    if re.match(r'^[a-zA-Z0-9.-]+$', nom_hote):
         return True
     return False
 
-def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, relayhost=None, smtp_user=None, smtp_pass=None):
-    with open(smtp_info_file_path, 'w') as smtp_info_file:
-        smtp_info_file.write(f"Informations SMTP pour le serveur {hostname}\n")
-        smtp_info_file.write(f"=============================================\n")
-        smtp_info_file.write(f"Nom d'hôte : {hostname}\n")
-        smtp_info_file.write(f"Domaine : {domain}\n")
-        smtp_info_file.write(f"Adresse IP : {ip_address}\n")
-        smtp_info_file.write("\nConfiguration SMTP :\n")
-        smtp_info_file.write(f"- SMTP Server : {hostname}\n")
-        smtp_info_file.write(f"- Port : 587\n")
-        smtp_info_file.write(f"- TLS : Oui\n")
+def generer_fichier_smtp(chemin_fichier_smtp, nom_hote, domaine, adresse_ip, relayhost=None, utilisateur_smtp=None, mot_de_passe_smtp=None):
+    with open(chemin_fichier_smtp, 'w') as fichier_smtp:
+        fichier_smtp.write(f"Informations SMTP pour le serveur {nom_hote}\n")
+        fichier_smtp.write(f"=============================================\n")
+        fichier_smtp.write(f"Nom d'hôte : {nom_hote}\n")
+        fichier_smtp.write(f"Domaine : {domaine}\n")
+        fichier_smtp.write(f"Adresse IP : {adresse_ip}\n")
+        fichier_smtp.write("\nConfiguration SMTP :\n")
+        fichier_smtp.write(f"- SMTP Server : {nom_hote}\n")
+        fichier_smtp.write(f"- Port : 587\n")
+        fichier_smtp.write(f"- TLS : Oui\n")
         
         if relayhost:
-            smtp_info_file.write(f"- Relayhost : {relayhost}\n")
-            if smtp_user and smtp_pass:
-                smtp_info_file.write(f"- Nom d'utilisateur : {smtp_user}\n")
-                smtp_info_file.write(f"- Mot de passe : {smtp_pass}\n")
+            fichier_smtp.write(f"- Relayhost : {relayhost}\n")
+            if utilisateur_smtp et mot_de_passe_smtp:
+                fichier_smtp.write(f"- Nom d'utilisateur : {utilisateur_smtp}\n")
+                fichier_smtp.write(f"- Mot de passe : {mot_de_passe_smtp}\n")
         else:
-            smtp_info_file.write("- Utilisation directe sans relayhost.\n")
+            fichier_smtp.write("- Utilisation directe sans relayhost.\n")
         
-        smtp_info_file.write("\nParamètres supplémentaires :\n")
-        smtp_info_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        dkim_record = generate_dkim_record(domain)
-        smtp_info_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        smtp_info_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
+        fichier_smtp.write("\nParamètres supplémentaires :\n")
+        fichier_smtp.write(f"- SPF : v=spf1 a mx ip4:{adresse_ip} ~all\n")
+        enregistrement_dkim = generer_enregistrement_dkim(domaine)
+        fichier_smtp.write(f"- DKIM : default._domainkey.{domaine} IN TXT ( \"{enregistrement_dkim}\" )\n")
+        fichier_smtp.write(f"- DMARC : _dmarc.{domaine} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domaine}\"")
     
-    print(f"Fichier SMTP info généré à : {smtp_info_file_path}")
+    print(f"Fichier SMTP info généré à : {chemin_fichier_smtp}")
 
-def setup_server(args):
-    log_file_path = "/tmp/postfix_setup_log.txt"
-    report_file_path = "/tmp/postfix_setup_report.txt"
-    smtp_info_file_path = "/tmp/smtp_info.txt"
+def configurer_postfix(nom_hote, domaine, adresse_ip, domaine_externe, relayhost, utilisateur_smtp, mot_de_passe_smtp, fichier_log, verbose):
+    fichier_main_cf = "/etc/postfix/main.cf"
+    sauvegarder_fichier(fichier_main_cf)
     
-    create_log_page(log_file_path)
-
-    try:
-        update_log_page("Vérification des prérequis...", log_file_path)
-        check_prerequisites(log_file_path)
-
-        os_type = detect_os()
-        if os_type == "unknown":
-            handle_error("Distribution Linux non reconnue. Script interrompu.", log_file_path)
-        
-        update_log_page(f"Distribution Linux détectée : {os_type.capitalize()}", log_file_path)
-
-        update_log_page("Mise à jour du serveur...", log_file_path)
-        if os_type == "debian":
-            run_command("sudo apt-get update && sudo apt-get upgrade -y", log_file_path, args.verbose)
-        elif os_type == "rhel":
-            run_command("sudo yum update -y", log_file_path, args.verbose)
-
-        update_log_page("Installation de Postfix et des paquets nécessaires (si besoin)...", log_file_path)
-
-        hostname = args.hostname or input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
-        while not validate_hostname(hostname):
-            print("Nom d'hôte invalide. Veuillez réessayer.")
-            hostname = input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
-
-        domain = hostname.split('.', 1)[1]
-        ip_address = subprocess.getoutput("hostname -I").strip()
-        
-        external_domain = args.external_domain or input("Est-ce que le domaine est géré par un fournisseur externe ? (oui/non): ").strip().lower()
-
-        relayhost = None
-        smtp_user = None
-        smtp_pass = None
-
-        if external_domain == "oui":
-            relayhost = input("Entrez le serveur SMTP externe à utiliser comme relayhost (ex: smtp.votre-fournisseur-email.com:587): ")
-            smtp_user = input("Entrez le nom d'utilisateur SMTP pour le relayhost: ")
-            smtp_pass = input("Entrez le mot de passe SMTP pour le relayhost: ")
-
-        configure_postfix(hostname, domain, ip_address, external_domain, relayhost, smtp_user, smtp_pass, log_file_path, args.verbose)
-        configure_opendkim(domain, log_file_path, args.verbose)
-        optimize_postfix(log_file_path, args.verbose)
-        configure_firewall(log_file_path, args.verbose)
-
-        update_log_page("Serveur Postfix configuré avec succès!", log_file_path)
-        generate_report(report_file_path, hostname, domain, ipIt appears that the response was cut off before completion. Below is the complete Python script with all functionalities, including DKIM setup, Postfix configuration, firewall settings, and SMTP info file generation. The script also prompts the user for input during the setup process.
+    with open(fichier_main_cf, 'a') as config_postfix:
+        config_postfix.write("\n# Configuration Postfix\n")
+        config_postfix.write(f"myhostname = {nom_hote}\n")
+        config_postfix.write(f"mydomain = {domaine}\n")
+        config_postfix.write("myorigin = $mydomain\n")
+        config_postfix.write("inet_interfaces = all\n")
+        config_postfix.write("inet_protocols = ipv4\n")
+        config_postfix.write(f"smtpd_tls_cert_file=/etc/letsencrypt/live/{domaine}/fullchain.pem\n")
+        config_postfix.write(f"smtpd_tls_key_file=/etc/letsencrypt/live/{domaine}/privkey.pem\n")
+        config_postfix.write("smtpd_use_tls=yes\n")
+        config_postfix.write("smtpd_tls_auth_only = yes\n")
+        config_postfix.write("smtp_tls_security_level = may\n")
+        config_postfix.write("smtp_tls_note_starttls_offer = yes\n")
+        config_postfix.write("smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\n")
+        config_postfix.write(f"mydestination = {nom_hote}, localhost.{domaine}, localhost\n")
+        config_postfix.write("relayhost = \n" if not relayhost else f"relayhost = [{relayhost}]:587\n")
+        config_postfix.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
+        config_postfix.write("mailbox_size_limit = 0\n")
+        config_postfix.write("recipient_delimiter = +\n")
+        config_postfix.write("smtpd_sasl_type = dovecot\n")
+        config_postfix.writeDésolé, il semble que la réponse ait été coupée. Je vais continuer avec la partie manquante du script :
 
 ```python
-import os
-import subprocess
-import sys
-import time
-import argparse
-import shutil
-
-def run_command(command, log_file, verbose=False):
-    try:
-        with subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-            for line in process.stdout:
-                log_file.write(line)
-                if verbose:
-                    print(line, end='')
-            for error in process.stderr:
-                log_file.write(error)
-                if verbose:
-                    print(f"Erreur : {error}", end='')
-            process.wait()
-            if process.returncode != 0:
-                raise subprocess.CalledProcessError(process.returncode, command)
-    except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file)
-
-def handle_error(message, log_file):
-    log_file.write(message + "\n")
-    print(message)
-    sys.exit(1)
-
-def create_log_page(log_file_path):
-    try:
-        with open(log_file_path, 'w') as log_file:
-            log_file.write("Initialisation du script de configuration du serveur Postfix...\n")
-    except IOError as e:
-        print(f"Erreur lors de la création du fichier log: {str(e)}")
-        sys.exit(1)
-
-def update_log_page(message, log_file_path):
-    with open(log_file_path, 'a') as log_file:
-        log_file.write(message + "\n")
-    print(message)
-
-def generate_report(report_file_path, hostname, domain, ip_address, external_domain):
-    dkim_record = generate_dkim_record(domain)
-    with open(report_file_path, 'w') as report_file:
-        report_file.write(f"Rapport de configuration du serveur Postfix\n")
-        report_file.write(f"=============================================\n")
-        report_file.write(f"Nom d'hôte : {hostname}\n")
-        report_file.write(f"Domaine : {domain}\n")
-        report_file.write(f"Adresse IP : {ip_address}\n")
-        
-        if external_domain == "oui":
-            report_file.write(f"\nLe domaine est géré par un fournisseur externe. Voici les configurations DNS à effectuer chez votre fournisseur DNS:\n")
-        else:
-            report_file.write(f"\nConfigurations DNS recommandées :\n")
-
-        report_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        report_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
-
-def generate_dkim_record(domain):
-    key_file_path = f"/etc/opendkim/keys/{domain}/default.txt"
-    if os.path.exists(key_file_path):
-        with open(key_file_path) as key_file:
-            dkim_record = key_file.read().replace("\n", "")
-        return dkim_record
-    else:
-        return "[clé DKIM non trouvée]"
-
-def backup_file(file_path):
-    try:
-        backup_path = file_path + ".bak"
-        shutil.copy(file_path, backup_path)
-        print(f"Sauvegarde du fichier {file_path} vers {backup_path}")
-    except IOError as e:
-        print(f"Erreur lors de la sauvegarde du fichier: {str(e)}")
-        sys.exit(1)
-
-def check_prerequisites(log_file):
-    required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw"]
-    for package in required_packages:
-        try:
-            result = subprocess.run(['dpkg', '-l', package], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if result.returncode != 0:
-                update_log_page(f"Le paquet {package} n'est pas installé. Installation en cours...", log_file)
-                run_command(f"sudo apt-get install {package} -y", log_file)
-            else:
-                update_log_page(f"Le paquet {package} est déjà installé.", log_file)
-        except subprocess.CalledProcessError as e:
-            handle_error(f"Erreur lors de la vérification des prérequis: {str(e)}", log_file)
-
-def detect_os():
-    with open("/etc/os-release") as f:
-        os_info = f.read().lower()
-        if "ubuntu" in os_info or "debian" in os_info:
-            return "debian"
-        elif "centos" in os_info or "rhel" in os_info:
-            return "rhel"
-        else:
-            return "unknown"
-
-def validate_hostname(hostname):
-    import re
-    if re.match(r'^[a-zA-Z0-9.-]+$', hostname):
-        return True
-    return False
-
-def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, relayhost=None, smtp_user=None, smtp_pass=None):
-    with open(smtp_info_file_path, 'w') as smtp_info_file:
-        smtp_info_file.write(f"Informations SMTP pour le serveur {hostname}\n")
-        smtp_info_file.write(f"=============================================\n")
-        smtp_info_file.write(f"Nom d'hôte : {hostname}\n")
-        smtp_info_file.write(f"Domaine : {domain}\n")
-        smtp_info_file.write(f"Adresse IP : {ip_address}\n")
-        smtp_info_file.write("\nConfiguration SMTP :\n")
-        smtp_info_file.write(f"- SMTP Server : {hostname}\n")
-        smtp_info_file.write(f"- Port : 587\n")
-        smtp_info_file.write(f"- TLS : Oui\n")
-        
-        if relayhost:
-            smtp_info_file.write(f"- Relayhost : {relayhost}\n")
-            if smtp_user and smtp_pass:
-                smtp_info_file.write(f"- Nom d'utilisateur : {smtp_user}\n")
-                smtp_info_file.write(f"- Mot de passe : {smtp_pass}\n")
-        else:
-            smtp_info_file.write("- Utilisation directe sans relayhost.\n")
-        
-        smtp_info_file.write("\nParamètres supplémentaires :\n")
-        smtp_info_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        dkim_record = generate_dkim_record(domain)
-        smtp_info_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        smtp_info_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
+        config_postfix.write("smtpd_sasl_path = private/auth\n")
+        config_postfix.write("smtpd_sasl_auth_enable = yes\n")
+        config_postfix.write("smtpd_sasl_security_options = noanonymous\n")
+        config_postfix.write("smtpd_sasl_local_domain = $myhostname\n")
+        config_postfix.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
     
-    print(f"Fichier SMTP info généré à : {smtp_info_file_path}")
-
-def configure_postfix(hostname, domain, ip_address, external_domain, relayhost, smtp_user, smtp_pass, log_file_path, verbose):
-    postfix_main_cf = "/etc/postfix/main.cf"
-    backup_file(postfix_main_cf)
+    if utilisateur_smtp and mot_de_passe_smtp:
+        with open('/etc/postfix/sasl_passwd', 'w') as fichier_sasl:
+            fichier_sasl.write(f"[{relayhost}]:587 {utilisateur_smtp}:{mot_de_passe_smtp}\n")
+        executer_commande("sudo postmap /etc/postfix/sasl_passwd", fichier_log, verbose)
+        executer_commande("sudo chmod 600 /etc/postfix/sasl_passwd /etc/postfix/sasl_passwd.db", fichier_log, verbose)
     
-    with open(postfix_main_cf, 'a') as postfix_config:
-        postfix_config.write("\n# Configuration Postfix\n")
-        postfix_config.write(f"myhostname = {hostname}\n")
-        postfix_config.write(f"mydomain = {domain}\n")
-        postfix_config.write("myorigin = $mydomain\n")
-        postfix_config.write("inet_interfaces = all\n")
-        postfix_config.write("inet_protocols = ipv4\n")
-        postfix_config.write(f"smtpd_tls_cert_file=/etc/letsencrypt/live/{domain}/fullchain.pem\n")
-        postfix_config.write(f"smtpd_tls_key_file=/etc/letsencrypt/live/{domain}/privkey.pem\n")
-        postfix_config.write("smtpd_use_tls=yes\n")
-        postfix_config.write("smtpd_tls_auth_only = yes\n")
-        postfix_config.write("smtp_tls_security_level = may\n")
-        postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
-        postfix_config.write("smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\n")
-        postfix_config.write(f"mydestination = {hostname}, localhost.{domain}, localhost\n")
-        postfix_config.write("relayhost = \n" if not relayhost else f"relayhost = [{relayhost}]:587\n")
-        postfix_config.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
-        postfix_config.write("mailbox_size_limit = 0\n")
-        postfix_config.write("recipient_delimiter = +\n")
-        postfix_config.write("smtpd_sasl_type = dovecot\n")
-        postfix_config.write("smtpd_sasl_path = private/auth\n")
-        postfix_config.write("smtpd_sasl_auth_enable = yes\n")
-        postfix_config.write("smtpd_sasl_security_options = noanonymous\n")
-        postfix_config.write("smtpd_sasl_local_domain = $myhostname\n")
-        postfix_config.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
-    
-    if smtp_user and smtp_pass:
-        with open('/etc/postfix/sasl_passwd', 'w') as sasl_passwd_file:
-            sasl_passwd_file.write(f"[{relayhost}]:587 {smtp_user}:{smtp_pass}\n")
-        run_command("sudo postmap /etc/postfix/sasl_passwd", logHere is the complete Python script to set up a Postfix mail server with DKIM, firewall settings, and SMTP info generation. This script is designed for a Debian-based system but can be adapted to others.
+    executer_commande("sudo systemctl restart postfix", fichier_log, verbose)
 
-```python
-import os
-import subprocess
-import sys
-import argparse
-import shutil
+def configurer_opendkim(domaine, fichier_log, verbose):
+    executer_commande("sudo apt-get install opendkim opendkim-tools -y", fichier_log, verbose)
 
-def run_command(command, log_file, verbose=False):
-    try:
-        with subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-            for line in process.stdout:
-                log_file.write(line)
-                if verbose:
-                    print(line, end='')
-            for error in process.stderr:
-                log_file.write(error)
-                if verbose:
-                    print(f"Erreur : {error}", end='')
-            process.wait()
-            if process.returncode != 0:
-                raise subprocess.CalledProcessError(process.returncode, command)
-    except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file)
+    executer_commande(f"sudo mkdir -p /etc/opendkim/keys/{domaine}", fichier_log, verbose)
+    executer_commande(f"sudo opendkim-genkey -s default -d {domaine}", fichier_log, verbose)
+    executer_commande(f"sudo mv default.private /etc/opendkim/keys/{domaine}/", fichier_log, verbose)
+    executer_commande(f"sudo mv default.txt /etc/opendkim/keys/{domaine}/", fichier_log, verbose)
+    executer_commande("sudo chown -R opendkim:opendkim /etc/opendkim/keys", fichier_log, verbose)
 
-def handle_error(message, log_file):
-    log_file.write(message + "\n")
-    print(message)
-    sys.exit(1)
-
-def create_log_page(log_file_path):
-    try:
-        with open(log_file_path, 'w') as log_file:
-            log_file.write("Initialisation du script de configuration du serveur Postfix...\n")
-    except IOError as e:
-        print(f"Erreur lors de la création du fichier log: {str(e)}")
-        sys.exit(1)
-
-def update_log_page(message, log_file_path):
-    with open(log_file_path, 'a') as log_file:
-        log_file.write(message + "\n")
-    print(message)
-
-def generate_report(report_file_path, hostname, domain, ip_address, external_domain):
-    dkim_record = generate_dkim_record(domain)
-    with open(report_file_path, 'w') as report_file:
-        report_file.write(f"Rapport de configuration du serveur Postfix\n")
-        report_file.write(f"=============================================\n")
-        report_file.write(f"Nom d'hôte : {hostname}\n")
-        report_file.write(f"Domaine : {domain}\n")
-        report_file.write(f"Adresse IP : {ip_address}\n")
-        
-        if external_domain == "oui":
-            report_file.write(f"\nLe domaine est géré par un fournisseur externe. Voici les configurations DNS à effectuer chez votre fournisseur DNS:\n")
-        else:
-            report_file.write(f"\nConfigurations DNS recommandées :\n")
-
-        report_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        report_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
-
-def generate_dkim_record(domain):
-    key_file_path = f"/etc/opendkim/keys/{domain}/default.txt"
-    if os.path.exists(key_file_path):
-        with open(key_file_path) as key_file:
-            dkim_record = key_file.read().replace("\n", "")
-        return dkim_record
-    else:
-        return "[clé DKIM non trouvée]"
-
-def backup_file(file_path):
-    try:
-        backup_path = file_path + ".bak"
-        shutil.copy(file_path, backup_path)
-        print(f"Sauvegarde du fichier {file_path} vers {backup_path}")
-    except IOError as e:
-        print(f"Erreur lors de la sauvegarde du fichier: {str(e)}")
-        sys.exit(1)
-
-def check_prerequisites(log_file):
-    required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw"]
-    for package in required_packages:
-        try:
-            result = subprocess.run(['dpkg', '-l', package], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if result.returncode != 0:
-                update_log_page(f"Le paquet {package} n'est pas installé. Installation en cours...", log_file)
-                run_command(f"sudo apt-get install {package} -y", log_file)
-            else:
-                update_log_page(f"Le paquet {package} est déjà installé.", log_file)
-        except subprocess.CalledProcessError as e:
-            handle_error(f"Erreur lors de la vérification des prérequis: {str(e)}", log_file)
-
-def detect_os():
-    with open("/etc/os-release") as f:
-        os_info = f.read().lower()
-        if "ubuntu" in os_info or "debian" in os_info:
-            return "debian"
-        elif "centos" in os_info or "rhel" in os_info:
-            return "rhel"
-        else:
-            return "unknown"
-
-def validate_hostname(hostname):
-    import re
-    if re.match(r'^[a-zA-Z0-9.-]+$', hostname):
-        return True
-    return False
-
-def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, relayhost=None, smtp_user=None, smtp_pass=None):
-    with open(smtp_info_file_path, 'w') as smtp_info_file:
-        smtp_info_file.write(f"Informations SMTP pour le serveur {hostname}\n")
-        smtp_info_file.write(f"=============================================\n")
-        smtp_info_file.write(f"Nom d'hôte : {hostname}\n")
-        smtp_info_file.write(f"Domaine : {domain}\n")
-        smtp_info_file.write(f"Adresse IP : {ip_address}\n")
-        smtp_info_file.write("\nConfiguration SMTP :\n")
-        smtp_info_file.write(f"- SMTP Server : {hostname}\n")
-        smtp_info_file.write(f"- Port : 587\n")
-        smtp_info_file.write(f"- TLS : Oui\n")
-        
-        if relayhost:
-            smtp_info_file.write(f"- Relayhost : {relayhost}\n")
-            if smtp_user and smtp_pass:
-                smtp_info_file.write(f"- Nom d'utilisateur : {smtp_user}\n")
-                smtp_info_file.write(f"- Mot de passe : {smtp_pass}\n")
-        else:
-            smtp_info_file.write("- Utilisation directe sans relayhost.\n")
-        
-        smtp_info_file.write("\nParamètres supplémentaires :\n")
-        smtp_info_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        dkim_record = generate_dkim_record(domain)
-        smtp_info_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        smtp_info_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
-    
-    print(f"Fichier SMTP info généré à : {smtp_info_file_path}")
-
-def configure_postfix(hostname, domain, ip_address, external_domain, relayhost, smtp_user, smtp_pass, log_file_path, verbose):
-    postfix_main_cf = "/etc/postfix/main.cf"
-    backup_file(postfix_main_cf)
-    
-    with open(postfix_main_cf, 'a') as postfix_config:
-        postfix_config.write("\n# Configuration Postfix\n")
-        postfix_config.write(f"myhostname = {hostname}\n")
-        postfix_config.write(f"mydomain = {domain}\n")
-        postfix_config.write("myorigin = $mydomain\n")
-        postfix_config.write("inet_interfaces = all\n")
-        postfix_config.write("inet_protocols = ipv4\n")
-        postfix_config.write(f"smtpd_tls_cert_file=/etc/letsencrypt/live/{domain}/fullchain.pem\n")
-        postfix_config.write(f"smtpd_tls_key_file=/etc/letsencrypt/live/{domain}/privkey.pem\n")
-        postfix_config.write("smtpd_use_tls=yes\n")
-        postfix_config.write("smtpd_tls_auth_only = yes\n")
-        postfix_config.write("smtp_tls_security_level = may\n")
-        postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
-        postfix_config.write("smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\n")
-        postfix_config.write(f"mydestination = {hostname}, localhost.{domain}, localhost\n")
-        postfix_config.write("relayhost = \n" if not relayhost else f"relayhost = [{relayhost}]:587\n")
-        postfix_config.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
-        postfix_config.write("mailbox_size_limit = 0\n")
-        postfix_config.write("recipient_delimiter = +\n")
-        postfix_config.write("smtpd_sasl_type = dovecot\n")
-        postfix_config.write("smtpd_sasl_path = private/auth\n")
-        postfix_config.write("smtpd_sasl_auth_enable = yes\n")
-        postfix_config.write("smtpd_sasl_security_options = noanonymous\n")
-        postfix_config.write("smtpd_sasl_local_domain = $myhostname\n")
-        postfix_config.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
-    
-    if smtp_user and smtp_pass:
-        with open('/etc/postfix/sasl_passwd', 'w') as sasl_passwd_file:
-            sasl_passwd_file.write(f"[{relayhost}]:587 {smtp_user}:{smtp_pass}\n")
-        run_command("sudo postmap /etc/postfix/sasl_passwd", log_file_path, verbose)
-        run_command("sudo chmod 600It seems the response was truncated earlier, so here is the continuation and completion of the full script.
-
-```python
-def configure_opendkim(domain, log_file_path, verbose):
-    # Install OpenDKIM if it's not already installed
-    run_command("sudo apt-get install opendkim opendkim-tools -y", log_file_path, verbose)
-
-    # Create necessary directories and files for DKIM
-    run_command(f"sudo mkdir -p /etc/opendkim/keys/{domain}", log_file_path, verbose)
-    run_command(f"sudo opendkim-genkey -s default -d {domain}", log_file_path, verbose)
-    run_command(f"sudo mv default.private /etc/opendkim/keys/{domain}/", log_file_path, verbose)
-    run_command(f"sudo mv default.txt /etc/opendkim/keys/{domain}/", log_file_path, verbose)
-    run_command("sudo chown -R opendkim:opendkim /etc/opendkim/keys", log_file_path, verbose)
-
-    # Configure OpenDKIM
-    with open("/etc/opendkim.conf", "a") as opendkim_config:
-        opendkim_config.write("\n# Configuration OpenDKIM\n")
-        opendkim_config.write("AutoRestart             Yes\n")
-        opendkim_config.write("AutoRestartRate         10/1h\n")
-        opendkim_config.write("SyslogSuccess           Yes\n")
-        opendkim_config.write("LogWhy                  Yes\n")
-        opendkim_config.write("Canonicalization        relaxed/simple\n")
-        opendkim_config.write("ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts\n")
-        opendkim_config.write("InternalHosts           refile:/etc/opendkim/TrustedHosts\n")
-        opendkim_config.write(f"KeyTable                refile:/etc/opendkim/KeyTable\n")
-        opendkim_config.write(f"SigningTable            refile:/etc/opendkim/SigningTable\n")
-        opendkim_config.write(f"Socket                  inet:8891@localhost\n")
-        opendkim_config.write(f"UserID                  opendkim\n")
-        opendkim_config.write(f"UMask                   002\n")
+    with open("/etc/opendkim.conf", "a") as config_opendkim:
+        config_opendkim.write("\n# Configuration OpenDKIM\n")
+        config_opendkim.write("AutoRestart             Yes\n")
+        config_opendkim.write("AutoRestartRate         10/1h\n")
+        config_opendkim.write("SyslogSuccess           Yes\n")
+        config_opendkim.write("LogWhy                  Yes\n")
+        config_opendkim.write("Canonicalization        relaxed/simple\n")
+        config_opendkim.write("ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts\n")
+        config_opendkim.write("InternalHosts           refile:/etc/opendkim/TrustedHosts\n")
+        config_opendkim.write(f"KeyTable                refile:/etc/opendkim/KeyTable\n")
+        config_opendkim.write(f"SigningTable            refile:/etc/opendkim/SigningTable\n")
+        config_opendkim.write(f"Socket                  inet:8891@localhost\n")
+        config_opendkim.write(f"UserID                  opendkim\n")
+        config_opendkim.write(f"UMask                   002\n")
 
     with open("/etc/opendkim/KeyTable", "w") as key_table:
-        key_table.write(f"default._domainkey.{domain} {domain}:default:/etc/opendkim/keys/{domain}/default.private\n")
+        key_table.write(f"default._domainkey.{domaine} {domaine}:default:/etc/opendkim/keys/{domaine}/default.private\n")
 
     with open("/etc/opendkim/SigningTable", "w") as signing_table:
-        signing_table.write(f"*@{domain} default._domainkey.{domain}\n")
+        signing_table.write(f"*@{domaine} default._domainkey.{domaine}\n")
 
     with open("/etc/opendkim/TrustedHosts", "w") as trusted_hosts:
         trusted_hosts.write("127.0.0.1\n")
         trusted_hosts.write("localhost\n")
-        trusted_hosts.write(f"{domain}\n")
+        trusted_hosts.write(f"{domaine}\n")
 
-    # Configure Postfix to use OpenDKIM
-    run_command("sudo sed -i '/^#milter_protocol = 2/c\milter_protocol = 2' /etc/postfix/main.cf", log_file_path, verbose)
-    run_command("sudo sed -i '/^#milter_default_action = accept/c\milter_default_action = accept' /etc/postfix/main.cf", log_file_path, verbose)
-    run_command("sudo sed -i '/^#smtpd_milters/c\smtpd_milters = inet:localhost:8891' /etc/postfix/main.cf", log_file_path, verbose)
-    run_command("sudo sed -i '/^#non_smtpd_milters/c\non_smtpd_milters = inet:localhost:8891' /etc/postfix/main.cf", log_file_path, verbose)
+    executer_commande("sudo sed -i '/^#milter_protocol = 2/c\milter_protocol = 2' /etc/postfix/main.cf", fichier_log, verbose)
+    executer_commande("sudo sed -i '/^#milter_default_action = accept/c\milter_default_action = accept' /etc/postfix/main.cf", fichier_log, verbose)
+    executer_commande("sudo sed -i '/^#smtpd_milters/c\smtpd_milters = inet:localhost:8891' /etc/postfix/main.cf", fichier_log, verbose)
+    executer_commande("sudo sed -i '/^#non_smtpd_milters/c\non_smtpd_milters = inet:localhost:8891' /etc/postfix/main.cf", fichier_log, verbose)
 
-    run_command("sudo systemctl restart opendkim", log_file_path, verbose)
-    run_command("sudo systemctl restart postfix", log_file_path, verbose)
+    executer_commande("sudo systemctl restart opendkim", fichier_log, verbose)
+    executer_commande("sudo systemctl restart postfix", fichier_log, verbose)
 
-def optimize_postfix(log_file_path, verbose):
-    # Optimize Postfix configuration for better performance and security
-    run_command("sudo postconf -e 'maximal_queue_lifetime = 1d'", log_file_path, verbose)
-    run_command("sudo postconf -e 'bounce_queue_lifetime = 1d'", log_file_path, verbose)
-    run_command("sudo postconf -e 'smtp_tls_security_level = may'", log_file_path, verbose)
-    run_command("sudo postconf -e 'smtpd_tls_security_level = may'", log_file_path, verbose)
-    run_command("sudo postconf -e 'smtp_tls_note_starttls_offer = yes'", log_file_path, verbose)
-    run_command("sudo postconf -e 'smtpd_tls_cert_file=/etc/letsencrypt/live/$(hostname)/fullchain.pem'", log_file_path, verbose)
-    run_command("sudo postconf -e 'smtpd_tls_key_file=/etc/letsencrypt/live/$(hostname)/privkey.pem'", log_file_path, verbose)
-    run_command("sudo systemctl reload postfix", log_file_path, verbose)
+def optimiser_postfix(fichier_log, verbose):
+    executer_commande("sudo postconf -e 'maximal_queue_lifetime = 1d'", fichier_log, verbose)
+    executer_commande("sudo postconf -e 'bounce_queue_lifetime = 1d'", fichier_log, verbose)
+    executer_commande("sudo postconf -e 'smtp_tls_security_level = may'", fichier_log, verbose)
+    executer_commande("sudo postconf -e 'smtpd_tls_security_level = may'", fichier_log, verbose)
+    executer_commande("sudo postconf -e 'smtp_tls_note_starttls_offer = yes'", fichier_log, verbose)
+    executer_commande("sudo postconf -e 'smtpd_tls_cert_file=/etc/letsencrypt/live/$(hostname)/fullchain.pem'", fichier_log, verbose)
+    executer_commande("sudo postconf -e 'smtpd_tls_key_file=/etc/letsencrypt/live/$(hostname)/privkey.pem'", fichier_log, verbose)
+    executer_commande("sudo systemctl reload postfix", fichier_log, verbose)
 
-def configure_firewall(log_file_path, verbose):
-    # Configure the firewall to allow necessary ports for SMTP, SMTPS, and Submission
-    run_command("sudo ufw allow 25/tcp", log_file_path, verbose)
-    run_command("sudo ufw allow 465/tcp", log_file_path, verbose)
-    run_command("sudo ufw allow 587/tcp", log_file_path, verbose)
-    run_command("sudo ufw enable", log_file_path, verbose)
+def configurer_pare_feu(fichier_log, verbose):
+    executer_commande("sudo ufw allow 25/tcp", fichier_log, verbose)
+    executer_commande("sudo ufw allow 465/tcp", fichier_log, verbose)
+    executer_commande("sudo ufw allow 587/tcp", fichier_log, verbose)
+    executer_commande("sudo ufw enable", fichier_log, verbose)
+
+def setup_server(args):
+    chemin_fichier_log = "/tmp/postfix_setup_log.txt"
+    chemin_rapport = "/tmp/postfix_setup_report.txt"
+    chemin_fichier_smtp = "/tmp/smtp_info.txt"
+    
+    creer_fichier_log(chemin_fichier_log)
+
+    try:
+        mise_a_jour_fichier_log("Vérification des prérequis...", chemin_fichier_log)
+        verifier_prerequis(chemin_fichier_log)
+
+        os_type = detecter_os()
+        if os_type == "inconnu":
+            gerer_erreur("Distribution Linux non reconnue. Script interrompu.", chemin_fichier_log)
+        
+        mise_a_jour_fichier_log(f"Distribution Linux détectée : {os_type.capitalize()}", chemin_fichier_log)
+
+        mise_a_jour_fichier_log("Mise à jour du serveur...", chemin_fichier_log)
+        if os_type == "debian":
+            executer_commande("sudo apt-get update && sudo apt-get upgrade -y", chemin_fichier_log, args.verbose)
+        elif os_type == "rhel":
+            executer_commande("sudo yum update -y", chemin_fichier_log, args.verbose)
+
+        mise_a_jour_fichier_log("Installation de Postfix et des paquets nécessaires (si besoin)...", chemin_fichier_log)
+
+        nom_hote = input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
+        while not valider_nom_hote(nom_hote):
+            print("Nom d'hôte invalide. Veuillez réessayer.")
+            nom_hote = input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
+
+        domaine = nom_hote.split('.', 1)[1]
+        adresse_ip = subprocess.getoutput("hostname -I").strip()
+        
+        domaine_externe = input("Est-ce que le domaine est géré par un fournisseur externe ? (oui/non): ").strip().lower()
+
+        relayhost = None
+        utilisateur_smtp = None
+        mot_de_passe_smtp = None
+
+        if domaine_externe == "oui":
+            relayhost = input("Entrez le serveur SMTP externe à utiliser comme relayhost (ex: smtp.votre-fournisseur-email.com:587): ")
+            utilisateur_smtp = input("Entrez le nom d'utilisateur SMTP pour le relayhost: ")
+            mot_de_passe_smtp = input("Entrez le mot de passe SMTP pour le relayhost: ")
+
+        configurer_postfix(nom_hote, domaine, adresse_ip, domaine_externe, relayhost, utilisateur_smtp, mot_de_passe_smtp, chemin_fichier_log, args.verbose)
+        configurer_opendkim(domaine, chemin_fichier_log, args.verbose)
+        optimiser_postfix(chemin_fichier_log, args.verbose)
+        configurer_pare_feu(chemin_fichier_log, args.verbose)
+
+        mise_a_jour_fichier_log("Serveur Postfix configuré avec succès!", chemin_fichier_log)
+        generer_rapport(chemin_rapport, nom_hote, domaine, adresse_ip, domaine_externe)
+        generer_fichier_smtp(chemin_fichier_smtp, nom_hoteVoici la fin du script complet en français :
+
+```python
+        generer_fichier_smtp(chemin_fichier_smtp, nom_hote, domaine, adresse_ip, relayhost, utilisateur_smtp, mot_de_passe_smtp)
+        mise_a_jour_fichier_log(f"Rapport de configuration généré à l'emplacement : {chemin_rapport}", chemin_fichier_log)
+        mise_a_jour_fichier_log(f"Informations SMTP générées à l'emplacement : {chemin_fichier_smtp}", chemin_fichier_log)
+    except Exception as e:
+        gerer_erreur(f"Échec de la configuration du serveur: {str(e)}", chemin_fichier_log)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script de configuration de serveur Postfix")
-    parser.add_argument("--hostname", help="Nom d'hôte du serveur de messagerie")
-    parser.add_argument("--external-domain", help="Le domaine est-il géré par un fournisseur externe ? (oui/non)")
     parser.add_argument("--verbose", action="store_true", help="Activer le mode verbeux")
     args = parser.parse_args()
 
