@@ -4,25 +4,27 @@ import sys
 import argparse
 import shutil
 
-def run_command(command, log_file, verbose=False):
+def run_command(command, log_file_path, verbose=False):
     try:
         with subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-            for line in process.stdout:
-                log_file.write(line)
-                if verbose:
-                    print(line, end='')
-            for error in process.stderr:
-                log_file.write(error)
-                if verbose:
-                    print(f"Erreur : {error}", end='')
+            with open(log_file_path, 'a') as log_file:
+                for line in process.stdout:
+                    log_file.write(line)
+                    if verbose:
+                        print(line, end='')
+                for error in process.stderr:
+                    log_file.write(error)
+                    if verbose:
+                        print(f"Erreur : {error}", end='')
             process.wait()
             if process.returncode != 0:
                 raise subprocess.CalledProcessError(process.returncode, command)
     except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file)
+        handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file_path)
 
-def handle_error(message, log_file):
-    log_file.write(message + "\n")
+def handle_error(message, log_file_path):
+    with open(log_file_path, 'a') as log_file:
+        log_file.write(message + "\n")
     print(message)
     sys.exit(1)
 
@@ -58,7 +60,7 @@ def generate_report(report_file_path, hostname, domain, ip_address, external_dom
         report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
 
 def generate_dkim_record(domain):
-    key_file_path = f"/etc/opendkim/keys/{domain}/default.taxt"
+    key_file_path = f"/etc/opendkim/keys/{domain}/default.txt"
     if os.path.exists(key_file_path):
         with open(key_file_path) as key_file:
             dkim_record = key_file.read().replace("\n", "")
@@ -75,18 +77,18 @@ def backup_file(file_path):
         print(f"Erreur lors de la sauvegarde du fichier: {str(e)}")
         sys.exit(1)
 
-def check_prerequisites(log_file):
+def check_prerequisites(log_file_path):
     required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw"]
     for package in required_packages:
         try:
             result = subprocess.run(['dpkg', '-l', package], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode != 0:
-                update_log_page(f"Le paquet {package} n'est pas installé. Installation en cours...", log_file)
-                run_command(f"sudo apt-get install {package} -y", log_file)
+                update_log_page(f"Le paquet {package} n'est pas installé. Installation en cours...", log_file_path)
+                run_command(f"sudo apt-get install {package} -y", log_file_path)
             else:
-                update_log_page(f"Le paquet {package} est déjà installé.", log_file)
+                update_log_page(f"Le paquet {package} est déjà installé.", log_file_path)
         except subprocess.CalledProcessError as e:
-            handle_error(f"Erreur lors de la vérification des prérequis: {str(e)}", log_file)
+            handle_error(f"Erreur lors de la vérification des prérequis: {str(e)}", log_file_path)
 
 def detect_os():
     with open("/etc/os-release") as f:
