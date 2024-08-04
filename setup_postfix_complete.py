@@ -41,8 +41,26 @@ def update_log_page(message, log_file_path):
         log_file.write(message + "\n")
     print(message)
 
-def generate_report(report_file_path, hostname, domain, ip_address, external_domain):
-    dkim_record = generate_dkim_record(domain)
+def generate_dkim_key(domain, log_file_path, verbose=False):
+    dkim_dir = f"/etc/opendkim/keys/{domain}"
+    if not os.path.exists(dkim_dir):
+        os.makedirs(dkim_dir)
+
+    # Générer la clé DKIM
+    command = f"opendkim-genkey -s default -d {domain} -D {dkim_dir}"
+    run_command(command, log_file_path, verbose)
+
+    # Définir les permissions
+    run_command(f"chown opendkim:opendkim {dkim_dir}/default.private", log_file_path, verbose)
+    run_command(f"chmod 600 {dkim_dir}/default.private", log_file_path, verbose)
+
+    # Retourner le contenu du fichier de clé publique
+    with open(f"{dkim_dir}/default.txt", 'r') as f:
+        dkim_record = f.read().replace("\n", "")
+    
+    return dkim_record
+
+def generate_report(report_file_path, hostname, domain, ip_address, dkim_record):
     with open(report_file_path, 'w') as report_file:
         report_file.write(f"Rapport de configuration du serveur Postfix\n")
         report_file.write(f"=============================================\n")
@@ -54,15 +72,6 @@ def generate_report(report_file_path, hostname, domain, ip_address, external_dom
         report_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
         report_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
         report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
-
-def generate_dkim_record(domain):
-    key_file_path = f"/etc/opendkim/keys/{domain}/default.txt"
-    if os.path.exists(key_file_path):
-        with open(key_file_path) as key_file:
-            dkim_record = key_file.read().replace("\n", "")
-        return dkim_record
-    else:
-        return "[clé DKIM non trouvée]"
 
 def backup_file(file_path):
     try:
@@ -128,42 +137,37 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     
     # Check if the main.cf file exists
     if not os.path.exists(postfix_main_cf):
-        # Create a default main.cf if it doesn't exist
-        default_main_cf = "/usr/share/postfix/main.cf.debian"
-        if os.path.exists(default_main_cf):
-            shutil.copy(default_main_cf, postfix_main_cf)
-            update_log_page(f"Fichier de configuration par défaut copié de {default_main_cf} vers {postfix_main_cf}", log_file_path)
-        else:
-            handle_error(f"Erreur: le fichier de configuration par défaut {default_main_cf} est introuvable.", log_file_path)
+        # Create a minimal main.cf if it doesn't exist
+        with open(postfix_main_cf, 'w') as postfix_config:
+            postfix_config.write("# Configuration Postfix minimale\n")
+            postfix_config.write(f"myhostname = {hostname}\n")
+            postfix_config.write(f"mydomain = {domain}\n")
+            postfix_config.write("myorigin = $mydomain\n")
+            postfix_config.write("inet_interfaces = all\n")
+            postfix_config.write("inet_protocols = ipv4\n")
+            postfix_config.write("smtpd_use_tls=yes\n")
+            postfix_config.write("smtpd_tls_auth_only = yes\n")
+            postfix_config.write(f"mydestination = {hostname}, localhost.{domain}, localhost\n")
+            postfix_config.write("relayhost = \n")
+            postfix_config.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
+            postfix_config.write("mailbox_size_limit = 0\n")
+            postfix_config.write("recipient_delimiter = +\n")
+            postfix_config.write("smtpd_sasl_auth_enable = yes\n")
+            postfix_config.write("smtpd_sasl_security_options = noanonymous\n")
+            postfix_config.write("smtpd_sasl_local_domain = $myhostname\n")
+            postfix_config.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
+        
+        update_log_page(f"Fichier de configuration minimal créé à {postfix_main_cf}", log_file_path)
     
     # Sauvegarde du fichier de configuration actuel
     backup_file(postfix_main_cf)
     
+    # Ajouter des configurations supplémentaires
     with open(postfix_main_cf, 'a') as postfix_config:
-        postfix_config.write("\n# Configuration Postfix\n")
-        postfix_config.write(f"myhostname = {hostname}\n")
-        postfix_config.write(f"mydomain = {domain}\n")
-        postfix_config.write("myorigin = $mydomain\n")
-        postfix_config.write("inet_interfaces = all\n")
-        postfix_config.write("inet_protocols = ipv4\n")
         postfix_config.write(f"smtpd_tls_cert_file=/etc/letsencrypt/live/{domain}/fullchain.pem\n")
         postfix_config.write(f"smtpd_tls_key_file=/etc/letsencrypt/live/{domain}/privkey.pem\n")
-        postfix_config.write("smtpd_use_tls=yes\n")
-        postfix_config.write("smtpd_tls_auth_only = yes\n")
         postfix_config.write("smtp_tls_security_level = may\n")
         postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
-        postfix_config.write("smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\n")
-        postfix_config.write(f"mydestination = {hostname}, localhost.{domain}, localhost\n")
-        postfix_config.write("relayhost = \n")
-        postfix_config.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
-        postfix_config.write("mailbox_size_limit = 0\n")
-        postfix_config.write("recipient_delimiter = +\n")
-        postfix_config.write("smtpd_sasl_type = dovecot\n")
-        postfix_config.write("smtpd_sasl_path = private/auth\n")
-        postfix_config.write("smtpd_sasl_auth_enable = yes\n")
-        postfix_config.write("smtpd_sasl_security_options = noanonymous\n")
-        postfix_config.write("smtpd_sasl_local_domain = $myhostname\n")
-        postfix_config.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
     
     # Restart Postfix to apply the configuration
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
@@ -193,10 +197,16 @@ def setup_server(args):
         domain = hostname.split('.', 1)[1]
         ip_address = subprocess.getoutput("hostname -I").strip()
 
-        # Configuration sans relayhost
+        # Générer la clé DKIM
+        dkim_record = generate_dkim_key(domain, log_file_path, args.verbose)
+
+        # Configuration Postfix
         configure_postfix(hostname, domain, ip_address, log_file_path, args.verbose)
-        generate_report(report_file_path, hostname, domain, ip_address, "non")
+        
+        # Générer le rapport et les infos SMTP
+        generate_report(report_file_path, hostname, domain, ip_address, dkim_record)
         generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address)
+        
         update_log_page(f"Rapport de configuration généré à l'emplacement : {report_file_path}", log_file_path)
         update_log_page(f"Informations SMTP générées à l'emplacement : {smtp_info_file_path}", log_file_path)
     except Exception as e:
