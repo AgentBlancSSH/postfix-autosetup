@@ -15,7 +15,7 @@ if [ "$choice" == "yes" ] || [ "$choice" == "y" ]; then
     if [ -f "postfix.py" ]; then
         python3 setup_postfix.py
     else
-        echo "postfix.py not found!"
+        echo "setup_postfix.py not found!"
     fi
 else
     echo "Skipping the execution of setup_postfix.py."
