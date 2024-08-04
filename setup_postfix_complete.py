@@ -165,8 +165,15 @@ def configure_postfix(hostname, domain, ip_address, external_domain, relayhost, 
     
     # Ajouter les informations de connexion SMTP dans /etc/postfix/sasl_passwd
     if smtp_user and smtp_pass:
-        with open('/etc/postfix/sasl_passwd', 'w') as sasl_passwd_file:
-            sasl_passwd_file.write(f"[{relayhost}]:587 {smtp_user}:{Il semble que le script Python a été coupé avant d'être terminé. Je vais vous fournir le script complet avec les corrections nécessaires pour demander dynamiquement toutes les informations relatives au SMTP et pour assurer que chaque étape du script est correctement exécutée. Voici la version complète et corrigée :
+    with open('/etc/postfix/sasl_passwd', 'w') as sasl_passwd_file:
+        sasl_passwd_file.write(f"[{relayhost}]:587 {smtp_user}:{smtp_pass}\n")
+        
+    # Secure the SMTP credentials
+    run_command("sudo postmap /etc/postfix/sasl_passwd", log_file_path, verbose)
+    run_command("sudo chmod 600 /etc/postfix/sasl_passwd /etc/postfix/sasl_passwd.db", log_file_path, verbose)
+
+# Restart Postfix to apply the configuration
+run_command("sudo systemctl restart postfix", log_file_path, verbose)
 
 ### Script Python complet (`setup_postfix_complete.py`)
 ```python
