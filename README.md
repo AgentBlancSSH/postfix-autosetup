@@ -1,70 +1,91 @@
 Automatic Postfix Server Configuration Script
 
 
-This script automatically configures a Postfix mail server on a Linux server. It is designed to be user-friendly, even for beginners, and includes several features to adapt to different environments.
+This script automates the configuration of a Postfix mail server on a Linux system, making it accessible even for beginners. It includes features that adapt to different environments and ensures secure email sending.
 
 Key Features
 
-Python 3 Installation Check: 
+Root Access: Requires root or sudo privileges for execution.
+Linux Distribution Detection: Automatically detects the Linux distribution (Debian/Ubuntu or CentOS/Red Hat) and adjusts 
+commands accordingly.
 
-If Python 3 is not installed, the script automatically installs it before proceeding.
-Prerequisite Check: The script verifies and installs the necessary packages for Postfix.
-Multi-Distribution Support: The script detects the Linux distribution (Debian/Ubuntu or CentOS/Red Hat) and adjusts commands accordingly.
+Prerequisite Check: 
 
-User Input Validation:
+Verifies and installs all necessary packages for Postfix, including Postfix itself, and other dependencies like OpenDKIM, UFW, and Certbot.
 
-The script validates the hostname and other user-provided information.
-Configuration File Backup: Critical files are automatically backed up before any modifications are made.
+User Input Validation: 
+Ensures the hostname and other provided information are valid before proceeding with the configuration.
 
+Configuration File Backup:
+
+Automatically backs up critical configuration files before making any changes.
 Automatic DKIM Record Generation: 
 
-The script generates the DKIM public key and includes it directly in the final report.
+Generates a DKIM public key and includes it in the final configuration report for DNS setup.
 
-SMTP Configuration File Creation:
+SMTP Configuration File Creation: 
 
-At the end of the script execution, a file containing all necessary SMTP information is generated for easy setup.
-Verbose Mode: Option to display more detailed information about the script's steps.
-Command-Line Options: You can pre-specify certain options for a more automated operation.
+At the end of the script execution, generates a file containing all necessary SMTP information for easy setup.
+Supports Ports 587 and 465: Configures Postfix to use ports 587 (STARTTLS) and 465 (SSL) for secure email sending.
+
+Verbose Mode:
+
+Option to display detailed information about each step the script takes.
+Command-Line Options: Allows pre-specification of options like hostname, external domain management, and verbosity for a more automated operation.
 
 
 Prerequisites
-Before starting, make sure you have:
 
-A Linux server: The script is compatible with Ubuntu, Debian, CentOS, and Red Hat.
+Before starting, ensure you have:
+
+A Linux server: 
+
+Compatible with Ubuntu, Debian, CentOS, and Red Hat.
 Root access or sudo privileges on the server.
 A domain name that you can configure to send emails (e.g., your-domain.com).
+
+
 Installation
-Download the Script
+
+Step 1: D
+
+ownload the Script
 Download the setup_postfix_complete.py script to your server.
 
 bash
+
 wget <link-to-script> -O setup_postfix_complete.py
-Grant Execution Rights
+Step 2: Grant Execution Rights
 Ensure the script is executable:
 
 bash
+
 chmod +x setup_postfix_complete.py
-Run the Script
+Step 3: Run the Script
 To launch the script, use the following command:
 
 bash
+
 sudo python3 setup_postfix_complete.py
 Command-Line Options
 You can pass options when running the script to automate some inputs:
 
---hostname: Specify the mail server hostname. For example:
+--hostname: Specify the mail server hostname. Example:
 
 bash
+
 sudo python3 setup_postfix_complete.py --hostname mail.your-domain.com
---external-domain: Indicate if the domain is managed by an external provider (yes or no). For example:
+--external-domain: Indicate if the domain is managed by an external provider (yes or no). Example:
 
 bash
+
 sudo python3 setup_postfix_complete.py --external-domain yes
 --verbose: Enable verbose mode to see more details on each step:
 
 bash
+
 sudo python3 setup_postfix_complete.py --verbose
-Monitor the Configuration
+Monitoring the Configuration
 The script generates a real-time log file. You can monitor the script's execution here: /tmp/postfix_setup_log.txt.
 
 Final Report
@@ -81,19 +102,19 @@ Verify Operation
 To ensure everything is working correctly, you can check Postfix logs:
 
 bash
+
 tail -f /var/log/mail.log
 Frequently Asked Questions (FAQ)
 What should I do if I encounter an error?
 
 Check the log file for more details. If the error persists, seek help online or consult a system administrator.
-
 How can I further customize the configuration?
 
 After running the script, you can modify the /etc/postfix/main.cf file to tailor the Postfix configuration.
-
 How do I know if my server is properly configured?
 
 You can send a test email and use online services like Mail-tester.com to verify that your emails are correctly configured and not marked as spam.
+
 
 Conclusion
 
