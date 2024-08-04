@@ -8,15 +8,15 @@ sudo apt-get install -y python3-pip curl nano python3
 
 echo "System update, upgrade, and installations completed!"
 
-# Demander à l'utilisateur s'il veut exécuter postfix.py
+# Demander à l'utilisateur s'il veut exécuter setup_postfix.py
 read -p "Lancer l'installation de postfix? (yes/no): " choice
 
 if [ "$choice" == "yes" ] || [ "$choice" == "y" ]; then
     if [ -f "postfix.py" ]; then
-        python3 postfix.py
+        python3 setup_postfix.py
     else
         echo "postfix.py not found!"
     fi
 else
-    echo "Skipping the execution of postfix.py."
+    echo "Skipping the execution of setup_postfix.py."
 fi
