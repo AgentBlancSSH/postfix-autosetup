@@ -50,11 +50,7 @@ def generate_report(report_file_path, hostname, domain, ip_address, external_dom
         report_file.write(f"Domaine : {domain}\n")
         report_file.write(f"Adresse IP : {ip_address}\n")
         
-        if external_domain == "oui":
-            report_file.write(f"\nLe domaine est géré par un fournisseur externe. Voici les configurations DNS à effectuer chez votre fournisseur DNS:\n")
-        else:
-            report_file.write(f"\nConfigurations DNS recommandées :\n")
-
+        report_file.write(f"\nConfigurations DNS recommandées :\n")
         report_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
         report_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
         report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
@@ -106,7 +102,7 @@ def validate_hostname(hostname):
         return True
     return False
 
-def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, relayhost=None, smtp_user=None, smtp_pass=None):
+def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address):
     with open(smtp_info_file_path, 'w') as smtp_info_file:
         smtp_info_file.write(f"Informations SMTP pour le serveur {hostname}\n")
         smtp_info_file.write(f"=============================================\n")
@@ -119,13 +115,7 @@ def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, r
         smtp_info_file.write(f"- TLS : Oui\n")
         smtp_info_file.write(f"- SSL : Port 465 activé\n")
         
-        if relayhost:
-            smtp_info_file.write(f"- Relayhost : {relayhost}\n")
-            if smtp_user and smtp_pass:
-                smtp_info_file.write(f"- Nom d'utilisateur : {smtp_user}\n")
-                smtp_info_file.write(f"- Mot de passe : {smtp_pass}\n")
-        else:
-            smtp_info_file.write("- Utilisation directe sans relayhost.\n")
+        smtp_info_file.write("- Utilisation directe sans relayhost.\n")
         
         smtp_info_file.write("\nParamètres supplémentaires :\n")
         smtp_info_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
@@ -133,8 +123,18 @@ def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, r
         smtp_info_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
         smtp_info_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
 
-def configure_postfix(hostname, domain, ip_address, external_domain, relayhost, smtp_user, smtp_pass, log_file_path, verbose):
+def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     postfix_main_cf = "/etc/postfix/main.cf"
+    
+    # Check if the main.cf file exists
+    if not os.path.exists(postfix_main_cf):
+        # Create a default main.cf if it doesn't exist
+        default_main_cf = "/usr/share/postfix/main.cf.debian"
+        if os.path.exists(default_main_cf):
+            shutil.copy(default_main_cf, postfix_main_cf)
+            update_log_page(f"Fichier de configuration par défaut copié de {default_main_cf} vers {postfix_main_cf}", log_file_path)
+        else:
+            handle_error(f"Erreur: le fichier de configuration par défaut {default_main_cf} est introuvable.", log_file_path)
     
     # Sauvegarde du fichier de configuration actuel
     backup_file(postfix_main_cf)
@@ -154,7 +154,7 @@ def configure_postfix(hostname, domain, ip_address, external_domain, relayhost, 
         postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
         postfix_config.write("smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\n")
         postfix_config.write(f"mydestination = {hostname}, localhost.{domain}, localhost\n")
-        postfix_config.write("relayhost = \n" if not relayhost else f"relayhost = [{relayhost}]:587\n")
+        postfix_config.write("relayhost = \n")
         postfix_config.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
         postfix_config.write("mailbox_size_limit = 0\n")
         postfix_config.write("recipient_delimiter = +\n")
@@ -164,15 +164,6 @@ def configure_postfix(hostname, domain, ip_address, external_domain, relayhost, 
         postfix_config.write("smtpd_sasl_security_options = noanonymous\n")
         postfix_config.write("smtpd_sasl_local_domain = $myhostname\n")
         postfix_config.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
-    
-    # Ajouter les informations de connexion SMTP dans /etc/postfix/sasl_passwd
-    if smtp_user and smtp_pass:
-        with open('/etc/postfix/sasl_passwd', 'w') as sasl_passwd_file:
-            sasl_passwd_file.write(f"[{relayhost}]:587 {smtp_user}:{smtp_pass}\n")
-    
-        # Secure the SMTP credentials
-        run_command("sudo postmap /etc/postfix/sasl_passwd", log_file_path, verbose)
-        run_command("sudo chmod 600 /etc/postfix/sasl_passwd /etc/postfix/sasl_passwd.db", log_file_path, verbose)
     
     # Restart Postfix to apply the configuration
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
@@ -201,21 +192,11 @@ def setup_server(args):
 
         domain = hostname.split('.', 1)[1]
         ip_address = subprocess.getoutput("hostname -I").strip()
-        
-        external_domain = args.external_domain or input("Est-ce que le domaine est géré par un fournisseur externe ? (oui/non): ").strip().lower()
 
-        relayhost = None
-        smtp_user = None
-        smtp_pass = None
-
-        if external_domain == "oui":
-            relayhost = input("Entrez le serveur SMTP externe à utiliser comme relayhost (ex: smtp.votre-fournisseur-email.com:587): ")
-            smtp_user = input("Entrez le nom d'utilisateur SMTP pour le relayhost: ")
-            smtp_pass = input("Entrez le mot de passe SMTP pour le relayhost: ")
-
-        configure_postfix(hostname, domain, ip_address, external_domain, relayhost, smtp_user, smtp_pass, log_file_path, args.verbose)
-        generate_report(report_file_path, hostname, domain, ip_address, external_domain)
-        generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, relayhost, smtp_user, smtp_pass)
+        # Configuration sans relayhost
+        configure_postfix(hostname, domain, ip_address, log_file_path, args.verbose)
+        generate_report(report_file_path, hostname, domain, ip_address, "non")
+        generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address)
         update_log_page(f"Rapport de configuration généré à l'emplacement : {report_file_path}", log_file_path)
         update_log_page(f"Informations SMTP générées à l'emplacement : {smtp_info_file_path}", log_file_path)
     except Exception as e:
@@ -224,7 +205,6 @@ def setup_server(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script de configuration de serveur Postfix")
     parser.add_argument("--hostname", help="Nom d'hôte du serveur de messagerie")
-    parser.add_argument("--external-domain", help="Le domaine est-il géré par un fournisseur externe ? (oui/non)")
     parser.add_argument("--verbose", action="store_true", help="Activer le mode verbeux")
     args = parser.parse_args()
 
