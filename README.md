@@ -47,9 +47,9 @@ A domain name that you can configure to send emails (e.g., your-domain.com).
 
 Installation
 
-Step 1: D
+Step 1: 
 
-ownload the Script
+Download the Script
 Download the setup_postfix_complete.py script to your server.
 
 bash
