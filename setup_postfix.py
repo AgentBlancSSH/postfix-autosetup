@@ -2,7 +2,6 @@ import os
 import subprocess
 import sys
 import logging
-import re
 
 # Configuration des logs
 logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
@@ -15,6 +14,15 @@ def execute_command(command, error_message):
     except subprocess.CalledProcessError as e:
         logging.error(f"{error_message}: {e}")
         sys.exit(f"\033[91m{error_message}\033[0m")
+
+def check_postfix_installation():
+    logging.info("Checking if Postfix is installed...")
+    if not os.path.isfile('/usr/sbin/postfix'):
+        sys.exit("\033[91mPostfix is not installed. Please install Postfix before running this script.\033[0m")
+    
+    if not os.path.isfile('/etc/postfix/main.cf'):
+        logging.info("Postfix main configuration file not found, creating a default one...")
+        execute_command("postconf -d > /etc/postfix/main.cf", "Failed to create default main.cf")
 
 def validate_hostname(hostname):
     pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$"
@@ -96,6 +104,7 @@ def main():
     email = input("Enter the email address to use: ")
     domain_name = '.'.join(hostname.split('.')[-2:])
     
+    check_postfix_installation()
     validate_hostname(hostname)
     validate_email(email)
 
