@@ -11,17 +11,32 @@ check_postfix_service() {
     fi
 }
 
-# Fonction pour tester la connexion SMTP avec telnet
-test_smtp_connection() {
+# Fonction pour tester la connexion SMTP avec TLS sur le port 587
+test_smtp_tls_587() {
     SMTP_HOST="localhost"
-    SMTP_PORT=25
+    SMTP_PORT=587
 
-    echo "Tentative de connexion à $SMTP_HOST sur le port $SMTP_PORT..."
-    timeout 5 telnet $SMTP_HOST $SMTP_PORT > /dev/null 2>&1
+    echo "Tentative de connexion à $SMTP_HOST sur le port $SMTP_PORT avec STARTTLS..."
+    echo -e "EHLO $SMTP_HOST\nSTARTTLS\nQUIT" | openssl s_client -connect $SMTP_HOST:$SMTP_PORT -starttls smtp > /dev/null 2>&1
     if [ $? -eq 0 ]; then
-        echo "Connexion au serveur SMTP réussie."
+        echo "Connexion TLS au serveur SMTP sur le port 587 réussie."
     else
-        echo "Impossible de se connecter au serveur SMTP."
+        echo "Impossible de se connecter au serveur SMTP sur le port 587 avec TLS."
+        exit 1
+    fi
+}
+
+# Fonction pour tester la connexion SMTP avec SSL sur le port 465
+test_smtp_ssl_465() {
+    SMTP_HOST="localhost"
+    SMTP_PORT=465
+
+    echo "Tentative de connexion à $SMTP_HOST sur le port $SMTP_PORT avec SSL..."
+    echo -e "EHLO $SMTP_HOST\nQUIT" | openssl s_client -connect $SMTP_HOST:$SMTP_PORT -ssl3 > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "Connexion SSL au serveur SMTP sur le port 465 réussie."
+    else
+        echo "Impossible de se connecter au serveur SMTP sur le port 465 avec SSL."
         exit 1
     fi
 }
@@ -44,7 +59,8 @@ send_test_email() {
 
 # Exécution des fonctions
 check_postfix_service
-test_smtp_connection
+test_smtp_tls_587
+test_smtp_ssl_465
 send_test_email
 
-echo "Vérifications terminées. Si l'email de test est reçu, le serveur SMTP fonctionne correctement."
+echo "Vérifications terminées. Si l'email de test est reçu, le serveur SMTP fonctionne correctement sur les ports 587 et 465."
