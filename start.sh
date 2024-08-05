@@ -15,13 +15,13 @@ function print_colored() {
 print_colored "=== Mise à jour du système ===" $BLUE
 sudo apt-get update -y && sudo apt-get upgrade -y
 
-# Installation des paquets nécessaires
+# Installation des paquets nécessaires, y compris bc et lsof
 print_colored "=== Installation des paquets nécessaires ===" $BLUE
-sudo apt-get install -y python3-pip curl nano python3 postfix mailutils libsasl2-modules opendkim opendkim-tools certbot ufw
+sudo apt-get install -y python3-pip curl nano python3 postfix mailutils libsasl2-modules opendkim opendkim-tools certbot ufw bc lsof
 
 # Vérification des installations
 print_colored "=== Vérification des paquets installés ===" $BLUE
-declare -a packages=("python3-pip" "curl" "nano" "python3" "postfix" "mailutils" "libsasl2-modules" "opendkim" "opendkim-tools" "certbot" "ufw")
+declare -a packages=("python3-pip" "curl" "nano" "python3" "postfix" "mailutils" "libsasl2-modules" "opendkim" "opendkim-tools" "certbot" "ufw" "bc" "lsof")
 
 for package in "${packages[@]}"; do
     dpkg -l | grep -qw $package
@@ -45,7 +45,7 @@ fi
 print_colored "=== Vérification des ports 587 et 465 ===" $BLUE
 if sudo lsof -i -P -n | grep -q ':587\|:465'; then
     print_colored "Attention: Un service utilise déjà les ports 587 ou 465." $RED
-    read -p "$(echo -e ${YELLOW}'Voulez-vous continuer quand même? (yes/no): '${RESET})" port_choice
+    read -p "$(echo -e ${YELLOW}Lancer l'installation de Postfix? (yes/no): ${RESET})" port_choice
     if [[ "$port_choice" != "yes" && "$port_choice" != "y" ]]; then
         print_colored "Exécution annulée." $YELLOW
         exit 1
@@ -55,7 +55,7 @@ else
 fi
 
 # Demander à l'utilisateur s'il veut exécuter setup_postfix_complete.py
-read -p "$(echo -e ${YELLOW}'Lancer l'installation de Postfix? (yes/no): '${RESET})" choice
+read -p "$(echo -e ${YELLOW}Lancer l'installation de Postfix? (yes/no): ${RESET})" choice
 
 if [[ "$choice" == "yes" || "$choice" == "y" ]]; then
     if [ -f "setup_postfix_complete.py" ]; then
