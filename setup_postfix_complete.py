@@ -5,21 +5,16 @@ import logging
 import re
 
 # Configuration des logs
-logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.INFO,
+logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 def execute_command(command, error_message):
     try:
-        logging.info(f"Executing command: {command}")
+        logging.debug(f"Executing command: {command}")
         subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
         logging.error(f"{error_message}: {e}")
         sys.exit(f"\033[91m{error_message}\033[0m")
-
-def install_packages(packages):
-    logging.info("Installing packages...")
-    for package in packages:
-        execute_command(f"apt-get install -y {package}", f"Failed to install {package}")
 
 def validate_hostname(hostname):
     pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)\.[A-Za-z]{2,6}$"
@@ -48,23 +43,20 @@ def configure_postfix_general(hostname, email):
     for key, value in settings.items():
         execute_command(f"postconf -e '{key} = {value}'", f"Failed to set {key}")
 
-def configure_postfix_tls():
-    logging.info("Configuring Postfix TLS...")
+def configure_postfix_ports():
+    logging.info("Configuring Postfix SMTP ports...")
     settings = {
-        'smtpd_tls_cert_file': '/etc/ssl/certs/ssl-cert-snakeoil.pem',
-        'smtpd_tls_key_file': '/etc/ssl/private/ssl-cert-snakeoil.key',
-        'smtpd_use_tls': 'yes',
-        'smtpd_tls_auth_only': 'yes',
-        'smtp_tls_security_level': 'may',
-        'smtpd_tls_received_header': 'yes',
-        'smtp_tls_note_starttls_offer': 'yes',
-        'smtpd_tls_session_cache_database': 'btree:${data_directory}/smtpd_scache',
-        'smtp_tls_session_cache_database': 'btree:${data_directory}/smtp_scache',
-        'tls_random_source': 'dev:/dev/urandom',
-        'smtpd_tls_loglevel': '1',
+        'smtpd_tls_security_level': 'may',
+        'submission inet n       -       y       -       -       smtpd': '',
+        'smtps     inet  n       -       y       -       -       smtpd': '',
+        '  -o smtpd_tls_wrappermode=yes': '',
+        '  -o smtpd_sasl_auth_enable=yes': '',
+        '  -o smtpd_reject_unlisted_recipient=yes': '',
+        '  -o smtpd_client_restrictions=permit_sasl_authenticated,reject': '',
+        '  -o milter_macro_daemon_name=ORIGINATING': ''
     }
     for key, value in settings.items():
-        execute_command(f"postconf -e '{key} = {value}'", f"Failed to set {key}")
+        execute_command(f"postconf -Me '{key}'", f"Failed to set {key}")
 
 def configure_dkim(domain_name):
     logging.info("Configuring DKIM...")
@@ -107,10 +99,8 @@ def main():
     validate_hostname(hostname)
     validate_email(email)
 
-    prerequisites = ["postfix", "postfix-policyd-spf-python", "opendkim", "opendkim-tools", "mailutils"]
-    install_packages(prerequisites)
     configure_postfix_general(hostname, email)
-    configure_postfix_tls()
+    configure_postfix_ports()
     configure_dkim(domain_name)
     finalize_smtp_configuration()
     save_smtp_info(domain_name, email)
@@ -120,38 +110,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Signature ASCII avec "Agent Blanc"
-def signature():
-    print(r"""
-          
-          
-          _____                    _____                    _____                    _____                _____                            _____                    _____            _____                    _____                    _____          
-         /\    \                  /\    \                  /\    \                  /\    \              /\    \                          /\    \                  /\    \          /\    \                  /\    \                  /\    \         
-        /::\    \                /::\    \                /::\    \                /::\____\            /::\    \                        /::\    \                /::\____\        /::\    \                /::\____\                /::\    \        
-       /::::\    \              /::::\    \              /::::\    \              /::::|   |            \:::\    \                      /::::\    \              /:::/    /       /::::\    \              /::::|   |               /::::\    \       
-      /::::::\    \            /::::::\    \            /::::::\    \            /:::::|   |             \:::\    \                    /::::::\    \            /:::/    /       /::::::\    \            /:::::|   |              /::::::\    \      
-     /:::/\:::\    \          /:::/\:::\    \          /:::/\:::\    \          /::::::|   |              \:::\    \                  /:::/\:::\    \          /:::/    /       /:::/\:::\    \          /::::::|   |             /:::/\:::\    \     
-    /:::/__\:::\    \        /:::/  \:::\    \        /:::/__\:::\    \        /:::/|::|   |               \:::\    \                /:::/__\:::\    \        /:::/    /       /:::/__\:::\    \        /:::/|::|   |            /:::/  \:::\    \    
-   /::::\   \:::\    \      /:::/    \:::\    \      /::::\   \:::\    \      /:::/ |::|   |               /::::\    \              /::::\   \:::\    \      /:::/    /       /::::\   \:::\    \      /:::/ |::|   |           /:::/    \:::\    \   
-  /::::::\   \:::\    \    /:::/    / \:::\    \    /::::::\   \:::\    \    /:::/  |::|   | _____        /::::::\    \            /::::::\   \:::\    \    /:::/    /       /::::::\   \:::\    \    /:::/  |::|   | _____    /:::/    / \:::\    \  
- /:::/\:::\   \:::\    \  /:::/    /   \:::\ ___\  /:::/\:::\   \:::\    \  /:::/   |::|   |/\    \      /:::/\:::\    \          /:::/\:::\   \:::\ ___\  /:::/    /       /:::/\:::\   \:::\    \  /:::/   |::|   |/\    \  /:::/    /   \:::\    \ 
-/:::/  \:::\   \:::\____\/:::/____/  ___\:::|    |/:::/__\:::\   \:::\____\/:: /    |::|   /::\____\    /:::/  \:::\____\        /:::/__\:::\   \:::|    |/:::/____/       /:::/  \:::\   \:::\____\/:: /    |::|   /::\____\/:::/____/     \:::\____\
-\::/    \:::\  /:::/    /\:::\    \ /\  /:::|____|\:::\   \:::\   \::/    /\::/    /|::|  /:::/    /   /:::/    \::/    /        \:::\   \:::\  /:::|____|\:::\    \       \::/    \:::\  /:::/    /\::/    /|::|  /:::/    /\:::\    \      \::/    /
- \/____/ \:::\/:::/    /  \:::\    /::\ \::/    /  \:::\   \:::\   \/____/  \/____/ |::| /:::/    /   /:::/    / \/____/          \:::\   \:::\/:::/    /  \:::\    \       \/____/ \:::\/:::/    /  \/____/ |::| /:::/    /  \:::\    \      \/____/ 
-          \::::::/    /    \:::\   \:::\ \/____/    \:::\   \:::\    \              |::|/:::/    /   /:::/    /                    \:::\   \::::::/    /    \:::\    \               \::::::/    /           |::|/:::/    /    \:::\    \             
-           \::::/    /      \:::\   \:::\____\       \:::\   \:::\____\             |::::::/    /   /:::/    /                      \:::\   \::::/    /      \:::\    \               \::::/    /            |::::::/    /      \:::\    \            
-           /:::/    /        \:::\  /:::/    /        \:::\   \::/    /             |:::::/    /    \::/    /                        \:::\  /:::/    /        \:::\    \               /:::/    /             |:::::/    /        \:::\    \           
-          /:::/    /          \:::\/:::/    /          \:::\   \/____/              |::::/    /      \/____/                          \:::\/:::/    /          \:::\    \             /:::/    /              |::::/    /          \:::\    \          
-         /:::/    /            \::::::/    /            \:::\    \                  /:::/    /                                         \::::::/    /            \:::\    \           /:::/    /               /:::/    /            \:::\    \         
-        /:::/    /              \::::/    /              \:::\____\                /:::/    /                                           \::::/    /              \:::\____\        /:::/    /               /:::/    /              \:::\____\        
-        \::/    /                \::/____/                \::/    /                \::/    /                                             \::/____/                \::/    /        \::/    /                \::/    /                \::/    /        
-         \/____/                                           \/____/                  \/____/                                               ~~                       \/____/          \/____/                  \/____/                  \/____/         
-                                                                                                                                                                                                                                                      
-                                                
-     """)
-    print("Agent Blanc")
-
-if __name__ == "__main__":
-    main()
-    signature()
