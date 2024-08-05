@@ -123,7 +123,7 @@ def backup_file(file_path):
         sys.exit(1)
 
 def check_prerequisites(log_file_path):
-    required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw"]
+    required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw", "nginx"]
     for package in required_packages:
         try:
             result = subprocess.run(['dpkg', '-l', package], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -230,6 +230,33 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     # Restart Postfix to apply the configuration
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
 
+def configure_nginx_for_certbot(log_file_path):
+    # Assurez-vous que le port 80 est ouvert et configuré pour Let's Encrypt
+    update_log_page("Configuration de Nginx pour Let's Encrypt...", log_file_path)
+
+    nginx_default_site = "/etc/nginx/sites-available/default"
+    
+    # Sauvegarder la configuration actuelle de Nginx
+    backup_file(nginx_default_site)
+    
+    with open(nginx_default_site, 'w') as nginx_config:
+        nginx_config.write("server {\n")
+        nginx_config.write("    listen 80 default_server;\n")
+        nginx_config.write("    listen [::]:80 default_server;\n")
+        nginx_config.write("    server_name _;\n")
+        nginx_config.write("    location / {\n")
+        nginx_config.write("        return 301 https://$host$request_uri;\n")
+        nginx_config.write("    }\n")
+        nginx_config.write("    location ~ /.well-known/acme-challenge/ {\n")
+        nginx_config.write("        allow all;\n")
+        nginx_config.write("    }\n")
+        nginx_config.write("}\n")
+    
+    # Redémarrer Nginx pour appliquer la nouvelle configuration
+    run_command("sudo systemctl restart nginx", log_file_path, verbose=True)
+
+    update_log_page("Nginx configuré avec succès pour Let's Encrypt.", log_file_path)
+
 def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
     # Vérifications avant génération des certificats
     update_log_page(f"Vérification de la résolution DNS pour {domain}...", log_file_path)
@@ -238,6 +265,9 @@ def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
     
     # Mise à jour de certbot
     update_certbot(log_file_path)
+
+    # Configuration de Nginx pour permettre l'utilisation de Let's Encrypt
+    configure_nginx_for_certbot(log_file_path)
 
     # Utiliser certbot pour générer les certificats SSL
     cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive --verbose"
