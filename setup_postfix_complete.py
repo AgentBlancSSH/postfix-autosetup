@@ -202,6 +202,12 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     # Restart Postfix to apply the configuration
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
 
+def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
+    # Utiliser certbot pour générer les certificats SSL
+    cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive"
+    run_command(cert_command, log_file_path, verbose)
+    update_log_page(f"Certificats SSL générés pour {domain} avec certbot.", log_file_path)
+
 def check_smtp_ports(log_file_path):
     # Test sur le port 587
     result_587 = subprocess.run("openssl s_client -starttls smtp -connect localhost:587 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -258,6 +264,10 @@ def setup_server(args):
 
         domain = hostname.split('.', 1)[1]
         ip_address = subprocess.getoutput("hostname -I").strip()
+
+        # Générer les certificats SSL avec Let's Encrypt
+        email = input("Entrez votre adresse email pour Let's Encrypt (pour les notifications de renouvellement) : ")
+        generate_ssl_certificates(domain, email, log_file_path, args.verbose)
 
         # Générer la clé DKIM
         dkim_record = generate_dkim_key(domain, log_file_path, args.verbose)
