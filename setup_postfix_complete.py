@@ -53,6 +53,34 @@ def update_log_page(message, log_file_path):
         log_file.write(message + "\n")
     print_colored(message, BLUE)
 
+def check_certbot_log():
+    log_path = "/var/log/letsencrypt/letsencrypt.log"
+    if os.path.exists(log_path):
+        with open(log_path, 'r') as log_file:
+            return log_file.read()
+    else:
+        return "Aucun log certbot trouvé."
+
+def check_dns_resolution(domain, log_file_path):
+    try:
+        command = f"dig +short {domain}"
+        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        ip_addresses = result.stdout.strip()
+        if ip_addresses:
+            update_log_page(f"Résolution DNS pour {domain} : {ip_addresses}", log_file_path)
+            return True
+        else:
+            handle_error(f"Échec de la résolution DNS pour {domain}.", log_file_path)
+    except Exception as e:
+        handle_error(f"Une erreur s'est produite lors de la résolution DNS pour {domain}: {str(e)}", log_file_path)
+
+def update_certbot(log_file_path):
+    try:
+        update_log_page("Mise à jour de certbot...", log_file_path)
+        run_command("sudo apt-get update && sudo apt-get install --only-upgrade certbot", log_file_path, verbose=True)
+    except Exception as e:
+        handle_error(f"Une erreur s'est produite lors de la mise à jour de certbot: {str(e)}", log_file_path)
+
 def generate_dkim_key(domain, log_file_path, verbose=False):
     dkim_dir = f"/etc/opendkim/keys/{domain}"
     if not os.path.exists(dkim_dir):
@@ -203,10 +231,23 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
 
 def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
+    # Vérifications avant génération des certificats
+    update_log_page(f"Vérification de la résolution DNS pour {domain}...", log_file_path)
+    if not check_dns_resolution(domain, log_file_path):
+        handle_error(f"Échec de la résolution DNS pour {domain}.", log_file_path)
+    
+    # Mise à jour de certbot
+    update_certbot(log_file_path)
+
     # Utiliser certbot pour générer les certificats SSL
-    cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive"
-    run_command(cert_command, log_file_path, verbose)
-    update_log_page(f"Certificats SSL générés pour {domain} avec certbot.", log_file_path)
+    cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive --verbose"
+    try:
+        run_command(cert_command, log_file_path, verbose)
+        update_log_page(f"Certificats SSL générés pour {domain} avec certbot.", log_file_path)
+    except subprocess.CalledProcessError as e:
+        # Si l'exécution échoue, afficher les détails du log certbot
+        certbot_log = check_certbot_log()
+        handle_error(f"Échec de la génération des certificats SSL pour {domain}. Détails du log:\n{certbot_log}", log_file_path)
 
 def check_smtp_ports(log_file_path):
     # Test sur le port 587
