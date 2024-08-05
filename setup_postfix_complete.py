@@ -3,6 +3,24 @@ import subprocess
 import sys
 import argparse
 import shutil
+import smtplib
+from email.mime.text import MIMEText
+
+# Couleurs pour les sorties
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+RESET = "\033[0m"
+
+def print_colored(message, color):
+    print(f"{color}{message}{RESET}")
+
+def handle_error(message, log_file_path):
+    with open(log_file_path, 'a') as log_file:
+        log_file.write(message + "\n")
+    print_colored(message, RED)
+    sys.exit(1)
 
 def run_command(command, log_file_path, verbose=False):
     try:
@@ -22,24 +40,18 @@ def run_command(command, log_file_path, verbose=False):
     except Exception as e:
         handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file_path)
 
-def handle_error(message, log_file_path):
-    with open(log_file_path, 'a') as log_file:
-        log_file.write(message + "\n")
-    print(message)
-    sys.exit(1)
-
 def create_log_page(log_file_path):
     try:
         with open(log_file_path, 'w') as log_file:
             log_file.write("Initialisation du script de configuration du serveur Postfix...\n")
     except IOError as e:
-        print(f"Erreur lors de la création du fichier log: {str(e)}")
+        print_colored(f"Erreur lors de la création du fichier log: {str(e)}", RED)
         sys.exit(1)
 
 def update_log_page(message, log_file_path):
     with open(log_file_path, 'a') as log_file:
         log_file.write(message + "\n")
-    print(message)
+    print_colored(message, BLUE)
 
 def generate_dkim_key(domain, log_file_path, verbose=False):
     dkim_dir = f"/etc/opendkim/keys/{domain}"
@@ -77,9 +89,9 @@ def backup_file(file_path):
     try:
         backup_path = file_path + ".bak"
         shutil.copy(file_path, backup_path)
-        print(f"Sauvegarde du fichier {file_path} vers {backup_path}")
+        print_colored(f"Sauvegarde du fichier {file_path} vers {backup_path}", GREEN)
     except IOError as e:
-        print(f"Erreur lors de la sauvegarde du fichier: {str(e)}")
+        print_colored(f"Erreur lors de la sauvegarde du fichier: {str(e)}", RED)
         sys.exit(1)
 
 def check_prerequisites(log_file_path):
@@ -133,6 +145,7 @@ def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, d
 
 def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     postfix_main_cf = "/etc/postfix/main.cf"
+    master_cf = "/etc/postfix/master.cf"
     
     # Check if the main.cf file exists
     if not os.path.exists(postfix_main_cf):
@@ -168,8 +181,58 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
         postfix_config.write("smtp_tls_security_level = may\n")
         postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
     
+    # Configurer les ports 587 et 465 dans master.cf
+    with open(master_cf, 'a') as master_config:
+        master_config.write(f"\nsubmission inet n       -       y       -       -       smtpd\n")
+        master_config.write(f"  -o syslog_name=postfix/submission\n")
+        master_config.write(f"  -o smtpd_tls_security_level=encrypt\n")
+        master_config.write(f"  -o smtpd_sasl_auth_enable=yes\n")
+        master_config.write(f"  -o smtpd_client_restrictions=permit_sasl_authenticated,reject\n")
+        master_config.write(f"  -o milter_macro_daemon_name=ORIGINATING\n")
+        
+        master_config.write(f"\nsmtps     inet  n       -       y       -       -       smtpd\n")
+        master_config.write(f"  -o syslog_name=postfix/smtps\n")
+        master_config.write(f"  -o smtpd_tls_wrappermode=yes\n")
+        master_config.write(f"  -o smtpd_sasl_auth_enable=yes\n")
+        master_config.write(f"  -o smtpd_client_restrictions=permit_sasl_authenticated,reject\n")
+        master_config.write(f"  -o milter_macro_daemon_name=ORIGINATING\n")
+    
+    update_log_page(f"Configuration des ports 587 (TLS) et 465 (SSL) écrite dans {master_cf}", log_file_path)
+
     # Restart Postfix to apply the configuration
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
+
+def check_smtp_ports(log_file_path):
+    # Test sur le port 587
+    result_587 = subprocess.run("openssl s_client -starttls smtp -connect localhost:587 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if "250" in result_587.stdout:
+        update_log_page("Le serveur SMTP est opérationnel sur le port 587 avec TLS.", log_file_path)
+    else:
+        handle_error("Échec de la connexion TLS au serveur SMTP sur le port 587.", log_file_path)
+
+    # Test sur le port 465
+    result_465 = subprocess.run("openssl s_client -connect localhost:465 -ssl3 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if "250" in result_465.stdout:
+        update_log_page("Le serveur SMTP est opérationnel sur le port 465 avec SSL.", log_file_path)
+    else:
+        handle_error("Échec de la connexion SSL au serveur SMTP sur le port 465.", log_file_path)
+
+def send_test_email(hostname, log_file_path, from_addr, to_addr):
+    try:
+        msg = MIMEText("Ceci est un test de configuration SMTP.")
+        msg['Subject'] = 'Test de configuration SMTP'
+        msg['From'] = from_addr
+        msg['To'] = to_addr
+
+        with smtplib.SMTP(hostname, 587) as server:
+            server.starttls()
+            server.sendmail(from_addr, [to_addr], msg.as_string())
+        
+        update_log_page(f"Email de test envoyé avec succès de {from_addr} à {to_addr}", log_file_path)
+        print_colored(f"Email de test envoyé avec succès de {from_addr} à {to_addr}", GREEN)
+
+    except Exception as e:
+        handle_error(f"Échec de l'envoi de l'email de test: {str(e)}", log_file_path)
 
 def setup_server(args):
     log_file_path = "/tmp/postfix_setup_log.txt"
@@ -190,7 +253,7 @@ def setup_server(args):
 
         hostname = args.hostname or input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
         while not validate_hostname(hostname):
-            print("Nom d'hôte invalide. Veuillez réessayer.")
+            print_colored("Nom d'hôte invalide. Veuillez réessayer.", RED)
             hostname = input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
 
         domain = hostname.split('.', 1)[1]
@@ -201,6 +264,14 @@ def setup_server(args):
 
         # Configuration Postfix
         configure_postfix(hostname, domain, ip_address, log_file_path, args.verbose)
+        
+        # Vérifier les ports SMTP
+        check_smtp_ports(log_file_path)
+        
+        # Test d'envoi d'email
+        from_addr = "test@" + domain
+        to_addr = input("Entrez une adresse email pour recevoir le test : ")
+        send_test_email(hostname, log_file_path, from_addr, to_addr)
         
         # Générer le rapport et les infos SMTP
         generate_report(report_file_path, hostname, domain, ip_address, dkim_record)
