@@ -41,11 +41,11 @@ else
     print_colored "Version de Python vérifiée: $PYTHON_VERSION" $GREEN
 fi
 
-# Vérification des ports critiques
+# Vérification des ports critiques 587 et 465
 print_colored "=== Vérification des ports 587 et 465 ===" $BLUE
 if sudo lsof -i -P -n | grep -q ':587\|:465'; then
     print_colored "Attention: Un service utilise déjà les ports 587 ou 465." $RED
-    read -p "$(echo -e ${YELLOW}Lancer l'installation de Postfix? (yes/no): ${RESET})" port_choice
+    read -p "$(echo -e ${YELLOW}Voulez-vous continuer quand même? (yes/no): ${RESET})" port_choice
     if [[ "$port_choice" != "yes" && "$port_choice" != "y" ]]; then
         print_colored "Exécution annulée." $YELLOW
         exit 1
@@ -54,16 +54,10 @@ else
     print_colored "Les ports 587 et 465 sont disponibles." $GREEN
 fi
 
-# Demander à l'utilisateur s'il veut exécuter setup_postfix_complete.py
-read -p "$(echo -e ${YELLOW}Lancer l'installation de Postfix? (yes/no): ${RESET})" choice
-
-if [[ "$choice" == "yes" || "$choice" == "y" ]]; then
-    if [ -f "setup_postfix_complete.py" ]; then
-        print_colored "Lancement de la configuration de Postfix..." $BLUE
-        sudo python3 setup_postfix_complete.py
-    else
-        print_colored "setup_postfix_complete.py non trouvé ! Assurez-vous que le fichier est dans le répertoire courant." $RED
-    fi
+# Lancer le script Python setup_postfix_complete.py
+if [ -f "setup_postfix_complete.py" ]; then
+    print_colored "Lancement de la configuration de Postfix..." $BLUE
+    sudo python3 setup_postfix_complete.py
 else
-    print_colored "Exécution de setup_postfix_complete.py annulée par l'utilisateur." $YELLOW
+    print_colored "setup_postfix_complete.py non trouvé ! Assurez-vous que le fichier est dans le répertoire courant." $RED
 fi
