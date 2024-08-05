@@ -27,9 +27,13 @@ sudo apt-get update -y && sudo apt-get upgrade -y
 print_colored "=== Installation des paquets nécessaires ===" $BLUE
 sudo apt-get install -y python3-pip curl nano python3 postfix mailutils libsasl2-modules opendkim opendkim-tools certbot ufw bc lsof
 
+# Installation des modules Python spécifiques pour Postfix
+print_colored "=== Installation des modules Python spécifiques pour Postfix ===" $BLUE
+sudo apt-get install -y postfix-policyd-spf-python python3-authres python3-dns python3-spf python3-spf-engine
+
 # Vérification des installations
 print_colored "=== Vérification des paquets installés ===" $BLUE
-declare -a packages=("python3-pip" "curl" "nano" "python3" "postfix" "mailutils" "libsasl2-modules" "opendkim" "opendkim-tools" "certbot" "ufw" "bc" "lsof")
+declare -a packages=("python3-pip" "curl" "nano" "python3" "postfix" "mailutils" "libsasl2-modules" "opendkim" "opendkim-tools" "certbot" "ufw" "bc" "lsof" "postfix-policyd-spf-python" "python3-authres" "python3-dns" "python3-spf" "python3-spf-engine")
 
 for package in "${packages[@]}"; do
     dpkg -l | grep -qw $package
