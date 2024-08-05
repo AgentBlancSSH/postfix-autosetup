@@ -17,7 +17,7 @@ def execute_command(command, error_message):
         sys.exit(f"\033[91m{error_message}\033[0m")
 
 def validate_hostname(hostname):
-    pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)\.[A-Za-z]{2,6}$"
+    pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$"
     if not re.match(pattern, hostname):
         sys.exit(f"\033[91mInvalid hostname: {hostname}\033[0m")
 
