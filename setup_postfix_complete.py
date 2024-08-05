@@ -1,10 +1,9 @@
 import os
 import subprocess
 import sys
-import argparse
 import shutil
-import smtplib
-from email.mime.text import MIMEText
+import socket
+import argparse
 
 # Couleurs pour les sorties
 RED = "\033[31m"
@@ -16,162 +15,83 @@ RESET = "\033[0m"
 def print_colored(message, color):
     print(f"{color}{message}{RESET}")
 
-def handle_error(message, log_file_path):
-    with open(log_file_path, 'a') as log_file:
-        log_file.write(message + "\n")
-    print_colored(message, RED)
-    sys.exit(1)
-
-def run_command(command, log_file_path, verbose=False):
+def run_command(command, log_file_path=None, verbose=False):
     try:
-        with subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-            with open(log_file_path, 'a') as log_file:
-                for line in process.stdout:
-                    log_file.write(line)
-                    if verbose:
-                        print(line, end='')
-                for error in process.stderr:
-                    log_file.write(error)
-                    if verbose:
-                        print(f"Erreur : {error}", end='')
-            process.wait()
-            if process.returncode != 0:
-                raise subprocess.CalledProcessError(process.returncode, command)
+        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if verbose:
+            print(result.stdout)
+        if result.returncode != 0:
+            error_message = f"Erreur lors de l'exécution de la commande {command}: {result.stderr}"
+            print_colored(error_message, RED)
+            if log_file_path:
+                with open(log_file_path, "a") as log_file:
+                    log_file.write(error_message + "\n")
+            sys.exit(1)
+        return result.stdout
     except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de l'exécution de la commande {command}: {str(e)}", log_file_path)
-
-def create_log_page(log_file_path):
-    try:
-        with open(log_file_path, 'w') as log_file:
-            log_file.write("Initialisation du script de configuration du serveur Postfix...\n")
-    except IOError as e:
-        print_colored(f"Erreur lors de la création du fichier log: {str(e)}", RED)
+        error_message = f"Une erreur s'est produite: {str(e)}"
+        print_colored(error_message, RED)
+        if log_file_path:
+            with open(log_file_path, "a") as log_file:
+                log_file.write(error_message + "\n")
         sys.exit(1)
 
 def update_log_page(message, log_file_path):
-    with open(log_file_path, 'a') as log_file:
+    with open(log_file_path, "a") as log_file:
         log_file.write(message + "\n")
-    print_colored(message, BLUE)
+    print_colored(message, GREEN)
+
+def check_dns_resolution(domain, log_file_path):
+    try:
+        ip = socket.gethostbyname(domain)
+        update_log_page(f"Résolution DNS pour {domain} : {ip}", log_file_path)
+        return True
+    except socket.gaierror:
+        update_log_page(f"Échec de la résolution DNS pour {domain}.", log_file_path)
+        return False
+
+def update_certbot(log_file_path):
+    update_log_page("Mise à jour de certbot...", log_file_path)
+    run_command("sudo apt-get update", log_file_path)
+    run_command("sudo apt-get install --only-upgrade certbot", log_file_path)
+
+def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
+    update_log_page(f"Vérification de la résolution DNS pour {domain}...", log_file_path)
+    if not check_dns_resolution(domain, log_file_path):
+        handle_error(f"Échec de la résolution DNS pour {domain}.", log_file_path)
+
+    # Mise à jour de certbot
+    update_certbot(log_file_path)
+
+    # Stop Nginx temporarily
+    run_command("sudo systemctl stop nginx", log_file_path, verbose)
+
+    # Use certbot to generate SSL certificates
+    cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive --verbose"
+    try:
+        run_command(cert_command, log_file_path, verbose)
+        update_log_page(f"Certificats SSL générés pour {domain} avec certbot.", log_file_path)
+    except subprocess.CalledProcessError as e:
+        certbot_log = check_certbot_log()
+        handle_error(f"Échec de la génération des certificats SSL pour {domain}. Détails du log:\n{certbot_log}", log_file_path)
+
+    # Start Nginx again
+    run_command("sudo systemctl start nginx", log_file_path, verbose)
 
 def check_certbot_log():
     log_path = "/var/log/letsencrypt/letsencrypt.log"
     if os.path.exists(log_path):
-        with open(log_path, 'r') as log_file:
+        with open(log_path, "r") as log_file:
             return log_file.read()
     else:
-        return "Aucun log certbot trouvé."
+        return "Le fichier de log certbot n'a pas été trouvé."
 
-def check_dns_resolution(domain, log_file_path):
-    try:
-        command = f"dig +short {domain}"
-        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        ip_addresses = result.stdout.strip()
-        if ip_addresses:
-            update_log_page(f"Résolution DNS pour {domain} : {ip_addresses}", log_file_path)
-            return True
-        else:
-            handle_error(f"Échec de la résolution DNS pour {domain}.", log_file_path)
-    except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de la résolution DNS pour {domain}: {str(e)}", log_file_path)
-
-def update_certbot(log_file_path):
-    try:
-        update_log_page("Mise à jour de certbot...", log_file_path)
-        run_command("sudo apt-get update && sudo apt-get install --only-upgrade certbot", log_file_path, verbose=True)
-    except Exception as e:
-        handle_error(f"Une erreur s'est produite lors de la mise à jour de certbot: {str(e)}", log_file_path)
-
-def generate_dkim_key(domain, log_file_path, verbose=False):
-    dkim_dir = f"/etc/opendkim/keys/{domain}"
-    if not os.path.exists(dkim_dir):
-        os.makedirs(dkim_dir)
-
-    command = f"opendkim-genkey -s default -d {domain} -D {dkim_dir}"
-    run_command(command, log_file_path, verbose)
-
-    run_command(f"chown opendkim:opendkim {dkim_dir}/default.private", log_file_path, verbose)
-    run_command(f"chmod 600 {dkim_dir}/default.private", log_file_path, verbose)
-
-    with open(f"{dkim_dir}/default.txt", 'r') as f:
-        dkim_record = f.read().replace("\n", "")
-    
-    return dkim_record
-
-def generate_report(report_file_path, hostname, domain, ip_address, dkim_record):
-    with open(report_file_path, 'w') as report_file:
-        report_file.write(f"Rapport de configuration du serveur Postfix\n")
-        report_file.write(f"=============================================\n")
-        report_file.write(f"Nom d'hôte : {hostname}\n")
-        report_file.write(f"Domaine : {domain}\n")
-        report_file.write(f"Adresse IP : {ip_address}\n")
-        
-        report_file.write(f"\nConfigurations DNS recommandées :\n")
-        report_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        report_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        report_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
-
-def backup_file(file_path):
-    try:
-        backup_path = file_path + ".bak"
-        shutil.copy(file_path, backup_path)
-        print_colored(f"Sauvegarde du fichier {file_path} vers {backup_path}", GREEN)
-    except IOError as e:
-        print_colored(f"Erreur lors de la sauvegarde du fichier: {str(e)}", RED)
-        sys.exit(1)
-
-def check_prerequisites(log_file_path):
-    required_packages = ["postfix", "mailutils", "libsasl2-modules", "opendkim", "certbot", "ufw", "nginx"]
-    for package in required_packages:
-        try:
-            result = subprocess.run(['dpkg', '-l', package], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if result.returncode != 0:
-                update_log_page(f"Le paquet {package} n'est pas installé. Installation en cours...", log_file_path)
-                run_command(f"sudo apt-get install {package} -y", log_file_path)
-            else:
-                update_log_page(f"Le paquet {package} est déjà installé.", log_file_path)
-        except subprocess.CalledProcessError as e:
-            handle_error(f"Erreur lors de la vérification des prérequis: {str(e)}", log_file_path)
-
-def detect_os():
-    with open("/etc/os-release") as f:
-        os_info = f.read().lower()
-        if "ubuntu" in os_info or "debian" in os_info:
-            return "debian"
-        elif "centos" in os_info or "rhel" in os_info:
-            return "rhel"
-        else:
-            return "unknown"
-
-def validate_hostname(hostname):
-    import re
-    if re.match(r'^[a-zA-Z0-9.-]+$', hostname):
-        return True
-    return False
-
-def generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, dkim_record):
-    with open(smtp_info_file_path, 'w') as smtp_info_file:
-        smtp_info_file.write(f"Informations SMTP pour le serveur {hostname}\n")
-        smtp_info_file.write(f"=============================================\n")
-        smtp_info_file.write(f"Nom d'hôte : {hostname}\n")
-        smtp_info_file.write(f"Domaine : {domain}\n")
-        smtp_info_file.write(f"Adresse IP : {ip_address}\n")
-        smtp_info_file.write("\nConfiguration SMTP :\n")
-        smtp_info_file.write(f"- SMTP Server : {hostname}\n")
-        smtp_info_file.write(f"- Port : 587\n")
-        smtp_info_file.write(f"- TLS : Oui\n")
-        smtp_info_file.write(f"- SSL : Port 465 activé\n")
-        
-        smtp_info_file.write("- Utilisation directe sans relayhost.\n")
-        
-        smtp_info_file.write("\nParamètres supplémentaires :\n")
-        smtp_info_file.write(f"- SPF : v=spf1 a mx ip4:{ip_address} ~all\n")
-        smtp_info_file.write(f"- DKIM : default._domainkey.{domain} IN TXT ( \"{dkim_record}\" )\n")
-        smtp_info_file.write(f"- DMARC : _dmarc.{domain} IN TXT \"v=DMARC1; p=none; rua=mailto:dmarc-reports@{domain}\"")
-
-def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
+def setup_postfix(hostname, domain, log_file_path, verbose=False):
+    update_log_page(f"Configuration de Postfix pour {hostname} et {domain}...", log_file_path)
     postfix_main_cf = "/etc/postfix/main.cf"
     master_cf = "/etc/postfix/master.cf"
-    
+
+    # Configuration minimale de Postfix
     if not os.path.exists(postfix_main_cf):
         with open(postfix_main_cf, 'w') as postfix_config:
             postfix_config.write("# Configuration Postfix minimale\n")
@@ -182,7 +102,7 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
             postfix_config.write("inet_protocols = ipv4\n")
             postfix_config.write("smtpd_use_tls=yes\n")
             postfix_config.write("smtpd_tls_auth_only = yes\n")
-            postfix_config.write(f"mydestination = {hostname}, localhost.{domain}, localhost\n")
+            postfix_config.write(f"mydestination = {hostname}, localhost.$mydomain, localhost\n")
             postfix_config.write("relayhost = \n")
             postfix_config.write("mynetworks = 127.0.0.0/8 [::1]/128\n")
             postfix_config.write("mailbox_size_limit = 0\n")
@@ -191,17 +111,11 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
             postfix_config.write("smtpd_sasl_security_options = noanonymous\n")
             postfix_config.write("smtpd_sasl_local_domain = $myhostname\n")
             postfix_config.write("smtpd_recipient_restrictions = permit_sasl_authenticated,permit_mynetworks,reject_unauth_destination\n")
-        
-        update_log_page(f"Fichier de configuration minimal créé à {postfix_main_cf}", log_file_path)
-    
-    backup_file(postfix_main_cf)
-    
-    with open(postfix_main_cf, 'a') as postfix_config:
-        postfix_config.write(f"smtpd_tls_cert_file=/etc/letsencrypt/live/{domain}/fullchain.pem\n")
-        postfix_config.write(f"smtpd_tls_key_file=/etc/letsencrypt/live/{domain}/privkey.pem\n")
-        postfix_config.write("smtp_tls_security_level = may\n")
-        postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
-    
+        update_log_page(f"Configuration Postfix minimale écrite dans {postfix_main_cf}", log_file_path)
+    else:
+        update_log_page(f"Le fichier de configuration {postfix_main_cf} existe déjà.", log_file_path)
+
+    # Configurer les ports 587 et 465 dans master.cf
     with open(master_cf, 'a') as master_config:
         master_config.write(f"\nsubmission inet n       -       y       -       -       smtpd\n")
         master_config.write(f"  -o syslog_name=postfix/submission\n")
@@ -209,139 +123,89 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
         master_config.write(f"  -o smtpd_sasl_auth_enable=yes\n")
         master_config.write(f"  -o smtpd_client_restrictions=permit_sasl_authenticated,reject\n")
         master_config.write(f"  -o milter_macro_daemon_name=ORIGINATING\n")
-        
+
         master_config.write(f"\nsmtps     inet  n       -       y       -       -       smtpd\n")
         master_config.write(f"  -o syslog_name=postfix/smtps\n")
         master_config.write(f"  -o smtpd_tls_wrappermode=yes\n")
         master_config.write(f"  -o smtpd_sasl_auth_enable=yes\n")
         master_config.write(f"  -o smtpd_client_restrictions=permit_sasl_authenticated,reject\n")
         master_config.write(f"  -o milter_macro_daemon_name=ORIGINATING\n")
-    
     update_log_page(f"Configuration des ports 587 (TLS) et 465 (SSL) écrite dans {master_cf}", log_file_path)
 
+    # Redémarrage de Postfix
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
-
-def configure_nginx_for_certbot(log_file_path):
-    update_log_page("Configuration de Nginx pour Let's Encrypt...", log_file_path)
-
-    nginx_default_site = "/etc/nginx/sites-available/default"
-    
-    backup_file(nginx_default_site)
-    
-    with open(nginx_default_site, 'w') as nginx_config:
-        nginx_config.write("server {\n")
-        nginx_config.write("    listen 80 default_server;\n")
-        nginx_config.write("    listen [::]:80 default_server;\n")
-        nginx_config.write("    server_name _;\n")
-        nginx_config.write("    location / {\n")
-        nginx_config.write("        return 301 https://$host$request_uri;\n")
-        nginx_config.write("    }\n")
-        nginx_config.write("    location ~ /.well-known/acme-challenge/ {\n")
-        nginx_config.write("        allow all;\n")
-        nginx_config.write("    }\n")
-        nginx_config.write("}\n")
-    
-    run_command("sudo systemctl restart nginx", log_file_path, verbose=True)
-
-    update_log_page("Nginx configuré avec succès pour Let's Encrypt.", log_file_path)
-
-def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
-    update_log_page(f"Vérification de la résolution DNS pour {domain}...", log_file_path)
-    if not check_dns_resolution(domain, log_file_path):
-        handle_error(f"Échec de la résolution DNS pour {domain}.", log_file_path)
-    
-    update_certbot(log_file_path)
-
-    configure_nginx_for_certbot(log_file_path)
-
-    cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive --verbose"
-    try:
-        run_command(cert_command, log_file_path, verbose)
-        update_log_page(f"Certificats SSL générés pour {domain} avec certbot.", log_file_path)
-    except subprocess.CalledProcessError as e:
-        certbot_log = check_certbot_log()
-        handle_error(f"Échec de la génération des certificats SSL pour {domain}. Détails du log:\n{certbot_log}", log_file_path)
+    update_log_page("Postfix redémarré avec succès.", log_file_path)
 
 def check_smtp_ports(log_file_path):
+    update_log_page("Vérification des ports SMTP...", log_file_path)
+
+    # Test sur le port 587
     result_587 = subprocess.run("openssl s_client -starttls smtp -connect localhost:587 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if "250" in result_587.stdout:
         update_log_page("Le serveur SMTP est opérationnel sur le port 587 avec TLS.", log_file_path)
     else:
-        handle_error("Échec de la connexion TLS au serveur SMTP sur le port 587.", log_file_path)
+        update_log_page("Échec de la connexion TLS au serveur SMTP sur le port 587.", log_file_path)
 
+    # Test sur le port 465
     result_465 = subprocess.run("openssl s_client -connect localhost:465 -ssl3 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if "250" in result_465.stdout:
         update_log_page("Le serveur SMTP est opérationnel sur le port 465 avec SSL.", log_file_path)
     else:
-        handle_error("Échec de la connexion SSL au serveur SMTP sur le port 465.", log_file_path)
+        update_log_page("Échec de la connexion SSL au serveur SMTP sur le port 465.", log_file_path)
 
-def send_test_email(hostname, log_file_path, from_addr, to_addr):
-    try:
-        msg = MIMEText("Ceci est un test de configuration SMTP.")
-        msg['Subject'] = 'Test de configuration SMTP'
-        msg['From'] = from_addr
-        msg['To'] = to_addr
+def setup_firewall(log_file_path):
+    update_log_page("Configuration du pare-feu UFW...", log_file_path)
+    run_command("sudo ufw allow OpenSSH", log_file_path)
+    run_command("sudo ufw allow 'Nginx Full'", log_file_path)
+    run_command("sudo ufw allow 587/tcp", log_file_path)
+    run_command("sudo ufw allow 465/tcp", log_file_path)
+    run_command("sudo ufw --force enable", log_file_path)
+    update_log_page("Pare-feu UFW configuré avec succès.", log_file_path)
 
-        with smtplib.SMTP(hostname, 587) as server:
-            server.starttls()
-            server.sendmail(from_addr, [to_addr], msg.as_string())
-        
-        update_log_page(f"Email de test envoyé avec succès de {from_addr} à {to_addr}", log_file_path)
-        print_colored(f"Email de test envoyé avec succès de {from_addr} à {to_addr}", GREEN)
+def setup_dkim(domain, log_file_path, verbose=False):
+    dkim_dir = f"/etc/opendkim/keys/{domain}"
+    os.makedirs(dkim_dir, exist_ok=True)
+    update_log_page(f"Répertoire DKIM créé : {dkim_dir}", log_file_path)
 
-    except Exception as e:
-        handle_error(f"Échec de l'envoi de l'email de test: {str(e)}", log_file_path)
+    dkim_key_path = os.path.join(dkim_dir, "default")
+    dkim_txt_record_path = os.path.join(dkim_dir, "default.txt")
 
-def setup_server(args):
-    log_file_path = "/tmp/postfix_setup_log.txt"
-    report_file_path = "/tmp/postfix_setup_report.txt"
-    smtp_info_file_path = "/tmp/smtp_info.txt"
-    
-    create_log_page(log_file_path)
+    # Génération de la clé DKIM
+    run_command(f"opendkim-genkey -s default -d {domain}", log_file_path, verbose)
 
-    try:
-        update_log_page("Vérification des prérequis...", log_file_path)
-        check_prerequisites(log_file_path)
+    # Déplacement des fichiers générés vers le répertoire approprié
+    run_command(f"mv default.private {dkim_key_path}", log_file_path, verbose)
+    run_command(f"mv default.txt {dkim_txt_record_path}", log_file_path, verbose)
 
-        os_type = detect_os()
-        if os_type == "unknown":
-            handle_error("Distribution Linux non reconnue. Script interrompu.", log_file_path)
-        
-        update_log_page(f"Distribution Linux détectée : {os_type.capitalize()}", log_file_path)
+    update_log_page(f"Clé DKIM générée et enregistrée dans {dkim_key_path}", log_file_path)
 
-        hostname = args.hostname or input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
-        while not validate_hostname(hostname):
-            print_colored("Nom d'hôte invalide. Veuillez réessayer.", RED)
-            hostname = input("Entrez le nom d'hôte pour le serveur mail (ex: mail.votre-domaine.com): ")
-
-        domain = hostname.split('.', 1)[1]
-        ip_address = subprocess.getoutput("hostname -I").strip()
-
-        email = input("Entrez votre adresse email pour Let's Encrypt (pour les notifications de renouvellement) : ")
-        generate_ssl_certificates(domain, email, log_file_path, args.verbose)
-
-        dkim_record = generate_dkim_key(domain, log_file_path, args.verbose)
-
-        configure_postfix(hostname, domain, ip_address, log_file_path, args.verbose)
-        
-        check_smtp_ports(log_file_path)
-        
-        from_addr = "test@" + domain
-        to_addr = input("Entrez une adresse email pour recevoir le test : ")
-        send_test_email(hostname, log_file_path, from_addr, to_addr)
-        
-        generate_report(report_file_path, hostname, domain, ip_address, dkim_record)
-        generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, dkim_record)
-        
-        update_log_page(f"Rapport de configuration généré à l'emplacement : {report_file_path}", log_file_path)
-        update_log_page(f"Informations SMTP générées à l'emplacement : {smtp_info_file_path}", log_file_path)
-    except Exception as e:
-        handle_error(f"Échec de la configuration du serveur: {str(e)}", log_file_path)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Script de configuration de serveur Postfix")
-    parser.add_argument("--hostname", help="Nom d'hôte du serveur de messagerie")
-    parser.add_argument("--verbose", action="store_true", help="Activer le mode verbeux")
+def main():
+    parser = argparse.ArgumentParser(description="Script de configuration complète de Postfix et Let's Encrypt.")
+    parser.add_argument("-d", "--domain", help="Le nom de domaine pour lequel configurer Let's Encrypt", required=True)
+    parser.add_argument("-e", "--email", help="Adresse email pour Let's Encrypt", required=True)
+    parser.add_argument("-v", "--verbose", help="Activer le mode verbeux", action="store_true")
+    parser.add_argument("-l", "--log", help="Fichier de log", default="/var/log/setup_postfix_complete.log")
     args = parser.parse_args()
 
-    setup_server(args)
+    log_file_path = args.log
+
+    if os.geteuid() != 0:
+        print_colored("Ce script doit être exécuté avec les privilèges root.", RED)
+        sys.exit(1)
+
+    hostname = args.domain
+    domain = ".".join(hostname.split(".")[1:])
+
+    # Vérifiez si Nginx est installé
+    if shutil.which("nginx") is None:
+        print_colored("Le paquet nginx n'est pas installé. Installation en cours...", YELLOW)
+        run_command("sudo apt-get install -y nginx", log_file_path, args.verbose)
+
+    setup_firewall(log_file_path)
+    setup_postfix(hostname, domain, log_file_path, args.verbose)
+    setup_dkim(domain, log_file_path, args.verbose)
+    generate_ssl_certificates(domain, args.email, log_file_path, args.verbose)
+    check_smtp_ports(log_file_path)
+
+if __name__ == "__main__":
+    main()
