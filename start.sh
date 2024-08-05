@@ -11,11 +11,19 @@ function print_colored() {
     echo -e "${2}${1}${RESET}"
 }
 
+# Vérification de la présence du script Python
+if [ ! -f "setup_postfix_complete.py" ]; then
+    print_colored "Erreur: Le fichier setup_postfix_complete.py n'existe pas dans le répertoire courant." $RED
+    exit 1
+else
+    print_colored "Le fichier setup_postfix_complete.py a été trouvé." $GREEN
+fi
+
 # Mise à jour du système
 print_colored "=== Mise à jour du système ===" $BLUE
 sudo apt-get update -y && sudo apt-get upgrade -y
 
-# Installation des paquets nécessaires, y compris bc et lsof
+# Installation des paquets nécessaires
 print_colored "=== Installation des paquets nécessaires ===" $BLUE
 sudo apt-get install -y python3-pip curl nano python3 postfix mailutils libsasl2-modules opendkim opendkim-tools certbot ufw bc lsof
 
@@ -29,6 +37,7 @@ for package in "${packages[@]}"; do
         print_colored "$package est déjà installé." $GREEN
     else
         print_colored "$package n'a pas été installé correctement." $RED
+        exit 1
     fi
 done
 
@@ -41,15 +50,11 @@ else
     print_colored "Version de Python vérifiée: $PYTHON_VERSION" $GREEN
 fi
 
-# Installation des modules Python requis
-print_colored "=== Installation des modules Python nécessaires ===" $BLUE
-pip3 install --user requests
-
 # Vérification des ports critiques
 print_colored "=== Vérification des ports 587 et 465 ===" $BLUE
 if sudo lsof -i -P -n | grep -q ':587\|:465'; then
     print_colored "Attention: Un service utilise déjà les ports 587 ou 465." $RED
-    read -p "$(echo -e ${YELLOW}Lancer l'installation de Postfix? (yes/no): ${RESET})" port_choice
+    read -p "$(echo -e ${YELLOW}Voulez-vous continuer malgré cela? (yes/no): ${RESET})" port_choice
     if [[ "$port_choice" != "yes" && "$port_choice" != "y" ]]; then
         print_colored "Exécution annulée." $YELLOW
         exit 1
@@ -58,16 +63,21 @@ else
     print_colored "Les ports 587 et 465 sont disponibles." $GREEN
 fi
 
-# Demander à l'utilisateur s'il veut exécuter setup_postfix_complete.py
-read -p "$(echo -e ${YELLOW}Lancer l'installation de Postfix? (yes/no): ${RESET})" choice
+# Donner les permissions d'exécution au script Python
+print_colored "=== Configuration des permissions du script Python ===" $BLUE
+chmod +x setup_postfix_complete.py
+if [ $? -ne 0 ]; then
+    print_colored "Erreur lors de la configuration des permissions pour setup_postfix_complete.py" $RED
+    exit 1
+fi
 
-if [[ "$choice" == "yes" || "$choice" == "y" ]]; then
-    if [ -f "setup_postfix_complete.py" ]; then
-        print_colored "Lancement de la configuration de Postfix..." $BLUE
-        sudo python3 setup_postfix_complete.py
-    else
-        print_colored "setup_postfix_complete.py non trouvé ! Assurez-vous que le fichier est dans le répertoire courant." $RED
-    fi
+# Exécution du script Python
+print_colored "=== Exécution du script Python ===" $BLUE
+sudo python3 setup_postfix_complete.py 2>&1 | tee setup_postfix_error.log
+
+if [ $? -eq 0 ]; then
+    print_colored "Le script setup_postfix_complete.py a été exécuté avec succès." $GREEN
 else
-    print_colored "Exécution de setup_postfix_complete.py annulée par l'utilisateur." $YELLOW
+    print_colored "Le script setup_postfix_complete.py a rencontré une erreur. Veuillez consulter setup_postfix_error.log pour plus de détails." $RED
+    exit 1
 fi
