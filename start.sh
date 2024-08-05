@@ -75,13 +75,23 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Exécution du script Python
-print_colored "=== Exécution du script Python ===" $BLUE
-sudo python3 setup_postfix_complete.py 2>&1 | tee setup_postfix_error.log
-
-if [ $? -eq 0 ]; then
-    print_colored "Le script setup_postfix_complete.py a été exécuté avec succès." $GREEN
-else
-    print_colored "Le script setup_postfix_complete.py a rencontré une erreur. Veuillez consulter setup_postfix_error.log pour plus de détails." $RED
+# Exécution du script Python avec diagnostic
+print_colored "=== Exécution du script Python avec diagnostic ===" $BLUE
+if ! sudo python3 setup_postfix_complete.py > setup_postfix_output.log 2>&1; then
+    print_colored "Erreur lors de l'exécution du script Python. Veuillez consulter setup_postfix_output.log pour plus de détails." $RED
     exit 1
+else
+    print_colored "Le script setup_postfix_complete.py a été exécuté avec succès." $GREEN
 fi
+
+# Vérification du fichier de log si le script Python n'a pas fonctionné
+if [ ! -f "setup_postfix_output.log" ]; then
+    print_colored "Erreur: Le fichier de log setup_postfix_output.log n'a pas été créé. Cela peut indiquer que le script Python n'a pas démarré." $RED
+    exit 1
+else
+    print_colored "Le fichier setup_postfix_output.log a été créé. Vous pouvez vérifier son contenu en utilisant 'cat setup_postfix_output.log'" $GREEN
+fi
+
+# Afficher la sortie du log pour les utilisateurs
+print_colored "=== Contenu du fichier de log ===" $BLUE
+cat setup_postfix_output.log
