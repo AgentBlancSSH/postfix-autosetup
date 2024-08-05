@@ -86,15 +86,12 @@ def generate_dkim_key(domain, log_file_path, verbose=False):
     if not os.path.exists(dkim_dir):
         os.makedirs(dkim_dir)
 
-    # Générer la clé DKIM
     command = f"opendkim-genkey -s default -d {domain} -D {dkim_dir}"
     run_command(command, log_file_path, verbose)
 
-    # Définir les permissions
     run_command(f"chown opendkim:opendkim {dkim_dir}/default.private", log_file_path, verbose)
     run_command(f"chmod 600 {dkim_dir}/default.private", log_file_path, verbose)
 
-    # Retourner le contenu du fichier de clé publique
     with open(f"{dkim_dir}/default.txt", 'r') as f:
         dkim_record = f.read().replace("\n", "")
     
@@ -175,9 +172,7 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     postfix_main_cf = "/etc/postfix/main.cf"
     master_cf = "/etc/postfix/master.cf"
     
-    # Check if the main.cf file exists
     if not os.path.exists(postfix_main_cf):
-        # Create a minimal main.cf if it doesn't exist
         with open(postfix_main_cf, 'w') as postfix_config:
             postfix_config.write("# Configuration Postfix minimale\n")
             postfix_config.write(f"myhostname = {hostname}\n")
@@ -199,17 +194,14 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
         
         update_log_page(f"Fichier de configuration minimal créé à {postfix_main_cf}", log_file_path)
     
-    # Sauvegarde du fichier de configuration actuel
     backup_file(postfix_main_cf)
     
-    # Ajouter des configurations supplémentaires
     with open(postfix_main_cf, 'a') as postfix_config:
         postfix_config.write(f"smtpd_tls_cert_file=/etc/letsencrypt/live/{domain}/fullchain.pem\n")
         postfix_config.write(f"smtpd_tls_key_file=/etc/letsencrypt/live/{domain}/privkey.pem\n")
         postfix_config.write("smtp_tls_security_level = may\n")
         postfix_config.write("smtp_tls_note_starttls_offer = yes\n")
     
-    # Configurer les ports 587 et 465 dans master.cf
     with open(master_cf, 'a') as master_config:
         master_config.write(f"\nsubmission inet n       -       y       -       -       smtpd\n")
         master_config.write(f"  -o syslog_name=postfix/submission\n")
@@ -227,16 +219,13 @@ def configure_postfix(hostname, domain, ip_address, log_file_path, verbose):
     
     update_log_page(f"Configuration des ports 587 (TLS) et 465 (SSL) écrite dans {master_cf}", log_file_path)
 
-    # Restart Postfix to apply the configuration
     run_command("sudo systemctl restart postfix", log_file_path, verbose)
 
 def configure_nginx_for_certbot(log_file_path):
-    # Assurez-vous que le port 80 est ouvert et configuré pour Let's Encrypt
     update_log_page("Configuration de Nginx pour Let's Encrypt...", log_file_path)
 
     nginx_default_site = "/etc/nginx/sites-available/default"
     
-    # Sauvegarder la configuration actuelle de Nginx
     backup_file(nginx_default_site)
     
     with open(nginx_default_site, 'w') as nginx_config:
@@ -252,42 +241,34 @@ def configure_nginx_for_certbot(log_file_path):
         nginx_config.write("    }\n")
         nginx_config.write("}\n")
     
-    # Redémarrer Nginx pour appliquer la nouvelle configuration
     run_command("sudo systemctl restart nginx", log_file_path, verbose=True)
 
     update_log_page("Nginx configuré avec succès pour Let's Encrypt.", log_file_path)
 
 def generate_ssl_certificates(domain, email, log_file_path, verbose=False):
-    # Vérifications avant génération des certificats
     update_log_page(f"Vérification de la résolution DNS pour {domain}...", log_file_path)
     if not check_dns_resolution(domain, log_file_path):
         handle_error(f"Échec de la résolution DNS pour {domain}.", log_file_path)
     
-    # Mise à jour de certbot
     update_certbot(log_file_path)
 
-    # Configuration de Nginx pour permettre l'utilisation de Let's Encrypt
     configure_nginx_for_certbot(log_file_path)
 
-    # Utiliser certbot pour générer les certificats SSL
     cert_command = f"sudo certbot certonly --standalone -d {domain} --agree-tos -m {email} --non-interactive --verbose"
     try:
         run_command(cert_command, log_file_path, verbose)
         update_log_page(f"Certificats SSL générés pour {domain} avec certbot.", log_file_path)
     except subprocess.CalledProcessError as e:
-        # Si l'exécution échoue, afficher les détails du log certbot
         certbot_log = check_certbot_log()
         handle_error(f"Échec de la génération des certificats SSL pour {domain}. Détails du log:\n{certbot_log}", log_file_path)
 
 def check_smtp_ports(log_file_path):
-    # Test sur le port 587
     result_587 = subprocess.run("openssl s_client -starttls smtp -connect localhost:587 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if "250" in result_587.stdout:
         update_log_page("Le serveur SMTP est opérationnel sur le port 587 avec TLS.", log_file_path)
     else:
         handle_error("Échec de la connexion TLS au serveur SMTP sur le port 587.", log_file_path)
 
-    # Test sur le port 465
     result_465 = subprocess.run("openssl s_client -connect localhost:465 -ssl3 -crlf -ign_eof", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if "250" in result_465.stdout:
         update_log_page("Le serveur SMTP est opérationnel sur le port 465 avec SSL.", log_file_path)
@@ -336,25 +317,19 @@ def setup_server(args):
         domain = hostname.split('.', 1)[1]
         ip_address = subprocess.getoutput("hostname -I").strip()
 
-        # Générer les certificats SSL avec Let's Encrypt
         email = input("Entrez votre adresse email pour Let's Encrypt (pour les notifications de renouvellement) : ")
         generate_ssl_certificates(domain, email, log_file_path, args.verbose)
 
-        # Générer la clé DKIM
         dkim_record = generate_dkim_key(domain, log_file_path, args.verbose)
 
-        # Configuration Postfix
         configure_postfix(hostname, domain, ip_address, log_file_path, args.verbose)
         
-        # Vérifier les ports SMTP
         check_smtp_ports(log_file_path)
         
-        # Test d'envoi d'email
         from_addr = "test@" + domain
         to_addr = input("Entrez une adresse email pour recevoir le test : ")
         send_test_email(hostname, log_file_path, from_addr, to_addr)
         
-        # Générer le rapport et les infos SMTP
         generate_report(report_file_path, hostname, domain, ip_address, dkim_record)
         generate_smtp_info_file(smtp_info_file_path, hostname, domain, ip_address, dkim_record)
         
