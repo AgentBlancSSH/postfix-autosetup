@@ -8,7 +8,7 @@ BLUE="\033[94m"
 ENDC="\033[0m"
 
 # Vérification des droits root
-if [ "$(id -u)" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; alors
     echo -e "${RED}Ce script doit être exécuté en tant que root.${ENDC}"
     exit 1
 fi
@@ -24,7 +24,7 @@ DKIM_SELECTOR="mail"
 
 # Fonction pour vérifier les erreurs
 check_error() {
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ]; alors
         echo -e "${RED}Une erreur est survenue lors de l'exécution du script.${ENDC}"
         exit 1
     fi
@@ -72,21 +72,21 @@ check_error
 echo "$DOMAIN" > /etc/mailname
 check_error
 
-# Fonction pour configurer DKIM
-configure_dkim() {
-    echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
+# Configuration de DKIM
+echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
 
-    mkdir -p /etc/opendkim/keys/$DOMAIN
-    check_error
+mkdir -p /etc/opendkim/keys/$DOMAIN
+check_error
 
-    opendkim-genkey -s $DKIM_SELECTOR -d $DOMAIN
-    check_error
+opendkim-genkey -s $DKIM_SELECTOR -d $DOMAIN
+check_error
 
-    mv $DKIM_SELECTOR.private /etc/opendkim/keys/$DOMAIN/
-    mv $DKIM_SELECTOR.txt /etc/opendkim/keys/$DOMAIN/
-    check_error
+mv $DKIM_SELECTOR.private /etc/opendkim/keys/$DOMAIN/
+mv $DKIM_SELECTOR.txt /etc/opendkim/keys/$DOMAIN/
+check_error
 
-    cat > /etc/opendkim.conf <<EODKIM
+# Création de la configuration d'OpenDKIM
+cat > /etc/opendkim.conf <<EODKIM
 Syslog                  yes
 UMask                   002
 Canonicalization        relaxed/simple
@@ -101,34 +101,32 @@ SigningTable            refile:/etc/opendkim/SigningTable
 ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts
 InternalHosts           refile:/etc/opendkim/TrustedHosts
 EODKIM
-    check_error
+check_error
 
-    cat > /etc/opendkim/KeyTable <<EOF
+# Configuration des fichiers de tables OpenDKIM
+cat > /etc/opendkim/KeyTable <<EOF
 $DKIM_SELECTOR._domainkey.$DOMAIN $DOMAIN:$DKIM_SELECTOR:/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private
 EOF
-    check_error
+check_error
 
-    cat > /etc/opendkim/SigningTable <<EOF
+cat > /etc/opendkim/SigningTable <<EOF
 *@${DOMAIN} $DKIM_SELECTOR._domainkey.${DOMAIN}
 EOF
-    check_error
+check_error
 
-    cat > /etc/opendkim/TrustedHosts <<EOF
+cat > /etc/opendkim/TrustedHosts <<EOF
 127.0.0.1
 localhost
 $DOMAIN
 EOF
-    check_error
+check_error
 
-    systemctl restart opendkim
-    check_error
+# Redémarrage d'OpenDKIM et Postfix
+systemctl restart opendkim
+check_error
 
-    systemctl enable opendkim
-    check_error
-}
-
-# Appel de la fonction de configuration DKIM
-configure_dkim
+systemctl enable opendkim
+check_error
 
 # Configuration de Postfix pour utiliser DKIM
 echo -e "${YELLOW}Configuration de Postfix pour utiliser DKIM...${ENDC}"
@@ -147,8 +145,9 @@ check_error
 echo -e "${GREEN}=== Configuration de Postfix et DKIM terminée ===${ENDC}"
 
 # Test d'envoi d'e-mail
-read -p "$(echo -e ${YELLOW}Entrez l'adresse e-mail de destination pour le test: ${ENDC})" test_email
-echo -e "Subject: Test SMTP\n\nCeci est un e-mail de test." | sendmail $test_email
+echo -n "$(echo -e ${YELLOW}Entrez l'adresse e-mail de destination pour le test: ${ENDC})"
+read test_email
+echo -e "Subject: Test SMTP\n\nCeci est un e-mail de test." | sendmail "$test_email"
 check_error
 
 echo -e "${GREEN}E-mail de test envoyé à $test_email${ENDC}"
