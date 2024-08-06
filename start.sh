@@ -85,7 +85,6 @@ postconf -e 'smtpd_sasl_auth_enable = no'
 postconf -e 'smtp_sasl_security_options = noanonymous'
 postconf -e 'smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd'
 postconf -e 'smtp_tls_security_level = encrypt'
-postconf -e 'smtpd_tls_security_level = encrypt'  # Ajouté de install.sh
 postconf -e 'smtp_tls_note_starttls_offer = yes'
 postconf -e 'mynetworks_style = subnet'
 postconf -e 'smtp_tls_loglevel = 1'
@@ -153,14 +152,6 @@ milter_protocol = 2
 smtpd_milters = inet:localhost:8891
 non_smtpd_milters = inet:localhost:8891
 EOF
-
-# Ajouter un hook pour redémarrer Postfix et Dovecot après le renouvellement du certificat
-HOOK_FILE=/etc/letsencrypt/renewal-hooks/post/postfix.sh
-> \$HOOK_FILE
-echo '#!/bin/sh' >> \$HOOK_FILE
-echo 'service postfix reload' >> \$HOOK_FILE
-echo 'service dovecot reload' >> \$HOOK_FILE
-chmod +x \$HOOK_FILE
 
 # Redémarrer les services
 service opendkim restart
