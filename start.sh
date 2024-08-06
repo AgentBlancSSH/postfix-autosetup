@@ -11,77 +11,120 @@ function print_colored() {
     echo -e "${2}${1}${RESET}"
 }
 
-# Demander les informations nécessaires
-read -p "Nom de domaine (ex: example.com): " domain
-read -p "Adresse IP publique de votre serveur SMTP: " server_ip
-read -p "Adresse e-mail pour les rapports DMARC (ex: admin@$domain): " dmarc_email
+# Variables d'environnement
+DOMAIN="yourdomain.com"
+EMAIL="admin@yourdomain.com"
+DOCKER_IMAGE_NAME="postfix_smtp_docker_image"
+CONTAINER_NAME="postfix_smtp_container"
+SMTP_USER="smtp_user"
+SMTP_PASSWORD=$(openssl rand -base64 12)
+SMTP_FILE="smtp_credentials.txt"
 
-# Vérification de la présence de dig pour DNS checks
-if ! command -v dig &> /dev/null
-then
-    print_colored "dig could not be found, installing it now..." $YELLOW
-    sudo apt-get install -y dnsutils
-fi
-
-# Vérification de la configuration SPF
-print_colored "=== Configuration de l'enregistrement SPF ===" $BLUE
-spf_record=$(dig +short TXT $domain | grep spf)
-
-if [ -z "$spf_record" ]; then
-    print_colored "Aucun enregistrement SPF trouvé pour $domain." $RED
-    print_colored "Vous devez ajouter l'enregistrement suivant à votre DNS:" $GREEN
-    echo "v=spf1 mx a ip4:$server_ip -all"
+# Vérification de Docker
+print_colored "=== Vérification de Docker ===" $BLUE
+if ! command -v docker &> /dev/null; then
+    print_colored "Docker n'est pas installé. Installation en cours..." $YELLOW
+    sudo apt-get update -y && sudo apt-get install -y docker.io
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    print_colored "Docker a été installé avec succès." $GREEN
 else
-    print_colored "Enregistrement SPF existant trouvé:" $GREEN
-    echo "$spf_record"
+    print_colored "Docker est déjà installé." $GREEN
 fi
 
-# Vérification de la configuration DKIM
-print_colored "=== Vérification de la configuration DKIM ===" $BLUE
-dkim_record=$(dig +short TXT default._domainkey.$domain)
+# Création du Dockerfile
+print_colored "=== Création du Dockerfile ===" $BLUE
+cat <<EOF > Dockerfile
+FROM ubuntu:20.04
 
-if [ -z "$dkim_record" ]; then
-    print_colored "Aucun enregistrement DKIM trouvé pour $domain." $RED
-    print_colored "Assurez-vous d'ajouter votre clé publique DKIM à votre DNS." $YELLOW
-    print_colored "Vous pouvez générer une clé avec la commande suivante sur votre serveur:" $GREEN
-    echo "opendkim-genkey -D /etc/opendkim/keys/$domain/ -d $domain -s default"
-else
-    print_colored "Enregistrement DKIM existant trouvé:" $GREEN
-    echo "$dkim_record"
-fi
+RUN apt-get update && apt-get install -y \\
+    postfix \\
+    mailutils \\
+    libsasl2-modules \\
+    opendkim \\
+    opendkim-tools \\
+    certbot \\
+    python3 \\
+    python3-pip \\
+    postfix-policyd-spf-python \\
+    python3-authres \\
+    python3-dns \\
+    python3-spf \\
+    python3-spf-engine \\
+    curl \\
+    nano \\
+    ufw \\
+    bc \\
+    lsof
 
-# Configuration DMARC
-print_colored "=== Configuration de l'enregistrement DMARC ===" $BLUE
-dmarc_record=$(dig +short TXT _dmarc.$domain)
+# Configuration initiale de Postfix pour l'envoi uniquement
+COPY install.sh /install.sh
+RUN chmod +x /install.sh && /install.sh
 
-if [ -z "$dmarc_record"; then
-    print_colored "Aucun enregistrement DMARC trouvé pour $domain." $RED
-    print_colored "Vous devez ajouter l'enregistrement suivant à votre DNS:" $GREEN
-    echo "v=DMARC1; p=none; rua=mailto:$dmarc_email"
-else
-    print_colored "Enregistrement DMARC existant trouvé:" $GREEN
-    echo "$dmarc_record"
-fi
+EXPOSE 25 587 465
 
-# Vérification du reverse DNS (PTR)
-print_colored "=== Vérification du reverse DNS (PTR) ===" $BLUE
-ptr_record=$(dig +short -x $server_ip)
+CMD ["postfix", "start-fg"]
+EOF
+print_colored "Dockerfile créé avec succès." $GREEN
 
-if [[ "$ptr_record" == *"$domain"* ]]; then
-    print_colored "Le reverse DNS est correctement configuré: $ptr_record" $GREEN
-else
-    print_colored "Le reverse DNS n'est pas configuré correctement." $RED
-    print_colored "Demandez à votre fournisseur d'hébergement de configurer le PTR pour $server_ip avec le domaine $domain" $YELLOW
-fi
+# Génération du script install.sh pour configuration Postfix
+print_colored "=== Création du script install.sh ===" $BLUE
+cat <<EOF > install.sh
+#!/bin/bash
 
-# Recommandations pour le contenu de l'e-mail
-print_colored "=== Recommandations pour le contenu de l'e-mail ===" $BLUE
-echo "1. Utilisez un sujet clair et évitez les mots déclencheurs de spam."
-echo "2. Incluez des informations de contact légitimes dans chaque e-mail."
-echo "3. Évitez les liens raccourcis et assurez-vous que tous les liens pointent vers des domaines de confiance."
-echo "4. Incluez une signature DKIM et respectez les bonnes pratiques SPF/DMARC."
-echo "5. Testez régulièrement vos e-mails avec des outils comme Mail-Tester (https://www.mail-tester.com/)."
+# Configurer Postfix pour agir comme un relais SMTP sortant uniquement
+postconf -e 'inet_interfaces = loopback-only'
+postconf -e 'myhostname = $DOMAIN'
+postconf -e 'mydestination ='
+postconf -e 'relayhost ='
+postconf -e 'smtpd_tls_cert_file = /etc/letsencrypt/live/$DOMAIN/fullchain.pem'
+postconf -e 'smtpd_tls_key_file = /etc/letsencrypt/live/$DOMAIN/privkey.pem'
+postconf -e 'smtpd_use_tls = yes'
+postconf -e 'smtp_sasl_auth_enable = yes'
+postconf -e 'smtpd_sasl_auth_enable = no'
+postconf -e 'smtp_sasl_security_options = noanonymous'
+postconf -e 'smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd'
+postconf -e 'smtp_tls_security_level = encrypt'
+postconf -e 'smtp_tls_note_starttls_offer = yes'
+postconf -e 'mynetworks_style = host'
+postconf -e 'smtp_tls_loglevel = 1'
+postconf -e 'smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt'
 
-# Conclusion
-print_colored "=== Processus terminé ===" $GREEN
-echo "Veuillez suivre les instructions ci-dessus pour vous assurer que vos e-mails ne finissent pas dans les spams."
+# Générer les certificats SSL avec Certbot
+certbot certonly --standalone -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
+
+# Configuration du mot de passe SASL
+echo "[$DOMAIN]:587 $SMTP_USER:$SMTP_PASSWORD" > /etc/postfix/sasl_passwd
+postmap /etc/postfix/sasl_passwd
+chmod 600 /etc/postfix/sasl_passwd
+
+# Relancer Postfix pour prendre en compte les nouvelles configurations
+service postfix restart
+EOF
+print_colored "Script install.sh créé avec succès." $GREEN
+
+# Construction de l'image Docker
+print_colored "=== Construction de l'image Docker ===" $BLUE
+docker build -t $DOCKER_IMAGE_NAME .
+print_colored "Image Docker construite avec succès." $GREEN
+
+# Exécution du conteneur
+print_colored "=== Exécution du conteneur Docker ===" $BLUE
+docker run -d --name $CONTAINER_NAME -p 25:25 -p 587:587 -p 465:465 $DOCKER_IMAGE_NAME
+print_colored "Le conteneur Docker a été démarré avec succès." $GREEN
+
+# Génération du fichier d'identifiants SMTP
+print_colored "=== Génération du fichier d'identifiants SMTP ===" $BLUE
+cat <<EOF > $SMTP_FILE
+SMTP Server: $DOMAIN
+SMTP Port: 587
+SMTP Username: $SMTP_USER
+SMTP Password: $SMTP_PASSWORD
+EOF
+print_colored "Fichier $SMTP_FILE généré avec succès." $GREEN
+
+# Affichage des logs du conteneur
+print_colored "=== Affichage des logs du conteneur ===" $BLUE
+docker logs $CONTAINER_NAME
+
+print_colored "Le script start.sh a été exécuté avec succès." $GREEN
