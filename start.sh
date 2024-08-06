@@ -11,13 +11,15 @@ function print_colored() {
     echo -e "${2}${1}${RESET}"
 }
 
-# Variables d'environnement
-DOMAIN="yourdomain.com"
-EMAIL="admin@yourdomain.com"
+# Demander à l'utilisateur d'entrer les variables nécessaires
+read -p "Veuillez entrer votre domaine (ex: example.com): " DOMAIN
+read -p "Veuillez entrer votre adresse email pour Certbot (ex: admin@example.com): " EMAIL
+read -p "Veuillez entrer le nom d'utilisateur SMTP (ex: smtp_user): " SMTP_USER
+SMTP_PASSWORD=$(openssl rand -base64 12)
+
+# Variables d'environnement pour Docker
 DOCKER_IMAGE_NAME="postfix_smtp_docker_image"
 CONTAINER_NAME="postfix_smtp_container"
-SMTP_USER="smtp_user"
-SMTP_PASSWORD=$(openssl rand -base64 12)
 SMTP_FILE="smtp_credentials.txt"
 
 # Vérification de Docker
@@ -57,11 +59,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \\
     bc \\
     lsof
 
-# Configuration initiale de Postfix pour l'envoi uniquement
+# Configuration initiale de Postfix pour l'envoi uniquement sur les ports 587 et 465
 COPY install.sh /install.sh
 RUN chmod +x /install.sh && /install.sh
 
-EXPOSE 25 587 465
+EXPOSE 587 465
 
 CMD ["postfix", "start-fg"]
 EOF
@@ -72,11 +74,9 @@ print_colored "=== Création du script install.sh ===" $BLUE
 cat <<EOF > install.sh
 #!/bin/bash
 
-# Configurer Postfix pour agir comme un relais SMTP sortant uniquement
-postconf -e 'inet_interfaces = loopback-only'
+# Configurer Postfix pour agir comme un relais SMTP sortant uniquement sur les ports 587 (submission) et 465 (smtps)
+postconf -e 'inet_interfaces = all'
 postconf -e 'myhostname = $DOMAIN'
-postconf -e 'mydestination ='
-postconf -e 'relayhost ='
 postconf -e 'smtpd_tls_cert_file = /etc/letsencrypt/live/$DOMAIN/fullchain.pem'
 postconf -e 'smtpd_tls_key_file = /etc/letsencrypt/live/$DOMAIN/privkey.pem'
 postconf -e 'smtpd_use_tls = yes'
@@ -86,9 +86,22 @@ postconf -e 'smtp_sasl_security_options = noanonymous'
 postconf -e 'smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd'
 postconf -e 'smtp_tls_security_level = encrypt'
 postconf -e 'smtp_tls_note_starttls_offer = yes'
-postconf -e 'mynetworks_style = host'
+postconf -e 'mynetworks_style = subnet'
 postconf -e 'smtp_tls_loglevel = 1'
 postconf -e 'smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt'
+
+# Activer les ports submission (587) et smtps (465)
+echo "submission inet n       -       y       -       -       smtpd" >> /etc/postfix/master.cf
+echo "  -o syslog_name=postfix/submission" >> /etc/postfix/master.cf
+echo "  -o smtpd_tls_security_level=encrypt" >> /etc/postfix/master.cf
+echo "  -o smtpd_sasl_auth_enable=yes" >> /etc/postfix/master.cf
+echo "  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject" >> /etc/postfix/master.cf
+
+echo "smtps     inet  n       -       y       -       -       smtpd" >> /etc/postfix/master.cf
+echo "  -o syslog_name=postfix/smtps" >> /etc/postfix/master.cf
+echo "  -o smtpd_tls_wrappermode=yes" >> /etc/postfix/master.cf
+echo "  -o smtpd_sasl_auth_enable=yes" >> /etc/postfix/master.cf
+echo "  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject" >> /etc/postfix/master.cf
 
 # Générer les certificats SSL avec Certbot
 certbot certonly --standalone -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
@@ -98,7 +111,50 @@ echo "[$DOMAIN]:587 $SMTP_USER:$SMTP_PASSWORD" > /etc/postfix/sasl_passwd
 postmap /etc/postfix/sasl_passwd
 chmod 600 /etc/postfix/sasl_passwd
 
-# Relancer Postfix pour prendre en compte les nouvelles configurations
+# Installation et configuration d'OpenDKIM pour DKIM
+apt-get install -y opendkim opendkim-tools
+
+# Génération des clés DKIM
+mkdir -p /etc/opendkim/keys/$DOMAIN
+opendkim-genkey -s mail -d $DOMAIN
+mv mail.private /etc/opendkim/keys/$DOMAIN/mail.private
+mv mail.txt /etc/opendkim/keys/$DOMAIN/mail.txt
+
+# Configuration d'OpenDKIM
+cat <<EOF >> /etc/opendkim.conf
+Syslog                  yes
+UMask                   002
+Domain                  *
+KeyFile                 /etc/opendkim/keys/$DOMAIN/mail.private
+Selector                mail
+Mode                    sv
+AutoRestart             yes
+AutoRestartRate         10/1h
+Background              yes
+Canonicalization        relaxed/simple
+ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts
+InternalHosts           refile:/etc/opendkim/TrustedHosts
+OversignHeaders         From
+SOCKET                  inet:8891@localhost
+EOF
+
+# Création du fichier TrustedHosts
+cat <<EOF >> /etc/opendkim/TrustedHosts
+127.0.0.1
+localhost
+$DOMAIN
+EOF
+
+# Configuration de Postfix pour utiliser OpenDKIM
+cat <<EOF >> /etc/postfix/main.cf
+milter_default_action = accept
+milter_protocol = 2
+smtpd_milters = inet:localhost:8891
+non_smtpd_milters = inet:localhost:8891
+EOF
+
+# Redémarrer les services
+service opendkim restart
 service postfix restart
 EOF
 print_colored "Script install.sh créé avec succès." $GREEN
@@ -110,14 +166,14 @@ print_colored "Image Docker construite avec succès." $GREEN
 
 # Exécution du conteneur
 print_colored "=== Exécution du conteneur Docker ===" $BLUE
-docker run -d --name $CONTAINER_NAME -p 25:25 -p 587:587 -p 465:465 $DOCKER_IMAGE_NAME
+docker run -d --name $CONTAINER_NAME -p 587:587 -p 465:465 $DOCKER_IMAGE_NAME
 print_colored "Le conteneur Docker a été démarré avec succès." $GREEN
 
 # Génération du fichier d'identifiants SMTP
 print_colored "=== Génération du fichier d'identifiants SMTP ===" $BLUE
 cat <<EOF > $SMTP_FILE
 SMTP Server: $DOMAIN
-SMTP Port: 587
+SMTP Ports: 587 (submission), 465 (smtps)
 SMTP Username: $SMTP_USER
 SMTP Password: $SMTP_PASSWORD
 EOF
