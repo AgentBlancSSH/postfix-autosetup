@@ -8,6 +8,7 @@ import re
 logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Fonction utilitaire pour exécuter une commande système
 def execute_command(command, error_message):
     try:
         logging.debug(f"Executing command: {command}")
@@ -16,6 +17,7 @@ def execute_command(command, error_message):
         logging.error(f"{error_message}: {e}")
         sys.exit(f"\033[91m{error_message}\033[0m")
 
+# Vérification de l'installation de Postfix
 def check_postfix_installation():
     logging.info("Checking if Postfix is installed...")
     if not os.path.isfile('/usr/sbin/postfix'):
@@ -25,16 +27,19 @@ def check_postfix_installation():
         logging.info("Postfix main configuration file not found, creating a default one...")
         execute_command("postconf -d > /etc/postfix/main.cf", "Failed to create default main.cf")
 
+# Validation du nom d'hôte
 def validate_hostname(hostname):
     pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$"
     if not re.match(pattern, hostname):
         sys.exit(f"\033[91mInvalid hostname: {hostname}\033[0m")
 
+# Validation de l'adresse email
 def validate_email(email):
     pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
     if not re.match(pattern, email):
         sys.exit(f"\033[91mInvalid email address: {email}\033[0m")
 
+# Configuration générale de Postfix
 def configure_postfix_general(hostname, email):
     logging.info("Configuring Postfix general settings...")
     settings = {
@@ -52,25 +57,35 @@ def configure_postfix_general(hostname, email):
     for key, value in settings.items():
         execute_command(f"postconf -e '{key} = {value}'", f"Failed to set {key}")
 
+# Configuration des ports SMTP dans master.cf
 def configure_postfix_ports():
     logging.info("Configuring Postfix SMTP ports...")
-    ports_config = [
-        "submission inet n       -       y       -       -       smtpd",
-        "  -o smtpd_tls_security_level=may",
-        "  -o smtpd_sasl_auth_enable=yes",
-        "  -o smtpd_reject_unlisted_recipient=yes",
-        "  -o smtpd_client_restrictions=permit_sasl_authenticated,reject",
-        "  -o milter_macro_daemon_name=ORIGINATING",
-        "smtps     inet  n       -       y       -       -       smtpd",
-        "  -o smtpd_tls_wrappermode=yes",
-        "  -o smtpd_sasl_auth_enable=yes",
-        "  -o smtpd_reject_unlisted_recipient=yes",
-        "  -o smtpd_client_restrictions=permit_sasl_authenticated,reject",
-        "  -o milter_macro_daemon_name=ORIGINATING"
-    ]
-    for config in ports_config:
-        execute_command(f"postconf -P '{config}'", f"Failed to set port configuration: {config}")
+    master_cf_path = "/etc/postfix/master.cf"
 
+    ports_config = """
+submission inet n       -       y       -       -       smtpd
+  -o smtpd_tls_security_level=may
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_reject_unlisted_recipient=yes
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+smtps     inet  n       -       y       -       -       smtpd
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_reject_unlisted_recipient=yes
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+"""
+    
+    try:
+        with open(master_cf_path, "a") as master_cf:
+            master_cf.write(ports_config)
+        logging.info("Successfully configured Postfix SMTP ports in master.cf.")
+    except Exception as e:
+        logging.error(f"Failed to configure Postfix SMTP ports: {e}")
+        sys.exit(f"\033[91mFailed to configure Postfix SMTP ports\033[0m")
+
+# Configuration de DKIM
 def configure_dkim(domain_name):
     logging.info("Configuring DKIM...")
     execute_command("mkdir -p /etc/opendkim/keys", "Failed to create DKIM keys directory")
@@ -90,12 +105,14 @@ def configure_dkim(domain_name):
 
     execute_command("systemctl restart opendkim", "Failed to restart OpenDKIM")
 
+# Finalisation de la configuration
 def finalize_smtp_configuration():
     logging.info("Finalizing SMTP configuration...")
     execute_command("systemctl restart postfix", "Failed to restart Postfix")
     execute_command("systemctl enable postfix", "Failed to enable Postfix on boot")
     execute_command("systemctl enable opendkim", "Failed to enable OpenDKIM on boot")
 
+# Sauvegarde des informations SMTP
 def save_smtp_info(domain_name, email):
     logging.info("Saving SMTP information...")
     with open('/etc/postfix/smtp_info.txt', 'w') as smtp_info:
@@ -103,6 +120,7 @@ def save_smtp_info(domain_name, email):
         smtp_info.write(f"Email Address: {email}\n")
         smtp_info.write("Ports: 587 (Submission), 465 (SMTPS)\n")
 
+# Fonction principale
 def main():
     print("\033[94m=== Postfix Setup Script ===\033[0m")
     hostname = input("Enter the hostname (e.g., mail.example.com): ")
