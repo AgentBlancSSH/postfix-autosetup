@@ -71,26 +71,24 @@ echo -e "${BLUE}=== Configuration et correction des problèmes de Postfix termin
 execute_command() {
     local command="$1"
     local error_message="$2"
-    try {
-        logging.debug(f"Executing command: {command}")
-        subprocess.run(command, shell=True, check=True)
-    } catch subprocess.CalledProcessError as e {
-        logging.error(f"{error_message}: {e}")
-        sys.exit(f"{RED}{error_message}{ENDC}")
-    }
+    echo -e "${YELLOW}Exécution de la commande: ${command}${ENDC}"
+    if ! eval "$command"; then
+        echo -e "${RED}${error_message}${ENDC}"
+        exit 1
+    fi
 }
 
 # Vérification de l'installation de Postfix
 check_postfix_installation() {
-    logging.info("Checking if Postfix is installed...")
+    echo -e "${YELLOW}Vérification de l'installation de Postfix...${ENDC}"
     if [ ! -f "/usr/sbin/postfix" ]; then
         echo -e "${RED}Postfix is not installed. Please install Postfix before running this script.${ENDC}"
         exit 1
     fi
     
     if [ ! -f "/etc/postfix/main.cf" ]; then
-        logging.info("Postfix main configuration file not found, creating a default one...")
-        execute_command "postconf -d > /etc/postfix/main.cf" "Failed to create default main.cf"
+        echo -e "${YELLOW}Fichier de configuration Postfix main.cf introuvable, création d'un fichier par défaut...${ENDC}"
+        execute_command "postconf -d > /etc/postfix/main.cf" "Échec de la création du fichier main.cf par défaut"
     fi
 }
 
@@ -118,7 +116,7 @@ validate_email() {
 configure_postfix_general() {
     local hostname="$1"
     local email="$2"
-    logging.info("Configuring Postfix general settings...")
+    echo -e "${YELLOW}Configuration générale de Postfix...${ENDC}"
     declare -A settings=(
         ["myhostname"]="$hostname"
         ["myorigin"]="$email"
@@ -132,13 +130,13 @@ configure_postfix_general() {
         ["broken_sasl_auth_clients"]="yes"
     )
     for key in "${!settings[@]}"; do
-        execute_command "postconf -e '${key} = ${settings[$key]}'" "Failed to set $key"
+        execute_command "postconf -e '${key} = ${settings[$key]}'" "Échec de la configuration de ${key}"
     done
 }
 
 # Configuration des ports SMTP dans master.cf
 configure_postfix_ports() {
-    logging.info("Configuring Postfix SMTP ports...")
+    echo -e "${YELLOW}Configuration des ports SMTP de Postfix...${ENDC}"
     master_cf_path="/etc/postfix/master.cf"
 
     ports_config=$(cat <<EOF
@@ -158,40 +156,41 @@ EOF
     )
     
     echo "$ports_config" >> "$master_cf_path"
-    logging.info("Successfully configured Postfix SMTP ports in master.cf.")
+    echo -e "${GREEN}Ports SMTP configurés avec succès dans master.cf.${ENDC}"
 }
 
 # Configuration de DKIM
 configure_dkim() {
     local domain_name="$1"
-    logging.info("Configuring DKIM...")
-    execute_command "mkdir -p /etc/opendkim/keys" "Failed to create DKIM keys directory"
-    execute_command "opendkim-genkey -s mail -d $domain_name" "Failed to generate DKIM keys"
-    execute_command "mv mail.private /etc/opendkim/keys/${domain_name}.private" "Failed to move private key"
-    execute_command "mv mail.txt /etc/opendkim/keys/${domain_name}.txt" "Failed to move DKIM record"
-    execute_command "chown opendkim:opendkim /etc/opendkim/keys/${domain_name}.private" "Failed to set permissions on private key"
+    echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
+    execute_command "mkdir -p /etc/opendkim/keys" "Échec de la création du répertoire des clés DKIM"
+    execute_command "opendkim-genkey -s mail -d $domain_name" "Échec de la génération des clés DKIM"
+    execute_command "mv mail.private /etc/opendkim/keys/${domain_name}.private" "Échec du déplacement de la clé privée"
+    execute_command "mv mail.txt /etc/opendkim/keys/${domain_name}.txt" "Échec du déplacement de l'enregistrement DKIM"
+    execute_command "chown opendkim:opendkim /etc/opendkim/keys/${domain_name}.private" "Échec de la configuration des permissions sur la clé privée"
 
     echo "mail._domainkey.${domain_name} ${domain_name}:mail:/etc/opendkim/keys/${domain_name}.private" >> /etc/opendkim/KeyTable
     echo "*@${domain_name} mail._domainkey.${domain_name}" >> /etc/opendkim/SigningTable
     echo -e "127.0.0.1\nlocalhost\n${domain_name}" >> /etc/opendkim/TrustedHosts
 
-    execute_command "systemctl restart opendkim" "Failed to restart OpenDKIM"
+    execute_command "systemctl restart opendkim" "Échec du redémarrage de OpenDKIM"
 }
 
 # Finalisation de la configuration
 finalize_smtp_configuration() {
-    logging.info("Finalizing SMTP configuration...")
-    execute_command "systemctl restart postfix" "Failed to restart Postfix"
-    execute_command "systemctl enable postfix" "Failed to enable Postfix on boot"
-    execute_command "systemctl enable opendkim" "Failed to enable OpenDKIM on boot"
+    echo -e "${YELLOW}Finalisation de la configuration SMTP...${ENDC}"
+    execute_command "systemctl restart postfix" "Échec du redémarrage de Postfix"
+    execute_command "systemctl enable postfix" "Échec de l'activation de Postfix au démarrage"
+    execute_command "systemctl enable opendkim" "Échec de l'activation de OpenDKIM au démarrage"
 }
 
 # Sauvegarde des informations SMTP
 save_smtp_info() {
     local domain_name="$1"
     local email="$2"
-    logging.info("Saving SMTP information...")
+    echo -e "${YELLOW}Sauvegarde des informations SMTP...${ENDC}"
     echo -e "SMTP Server: ${domain_name}\nEmail Address: ${email}\nPorts: 587 (Submission), 465 (SMTPS)" > /etc/postfix/smtp_info.txt
+    echo -e "${GREEN}Informations SMTP sauvegardées dans /etc/postfix/smtp_info.txt${ENDC}"
 }
 
 # Fonction pour envoyer un e-mail de test
@@ -200,7 +199,7 @@ send_test_email() {
     local smtp_port="$2"
     local email_sender="$3"
     local email_recipient="$4"
-    logging.info("Sending a test email...")
+    echo -e "${YELLOW}Envoi d'un e-mail de test...${ENDC}"
     subject="Test Email from Postfix Setup Script"
     body="This is a test email sent to confirm that Postfix SMTP is working correctly."
     
