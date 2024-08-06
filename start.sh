@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Variables
-MAIN_CF="/etc/postfix/main.cf"
-ALIASES="/etc/aliases"
-ALIASES_DB="/etc/aliases.db"
-
 # Couleurs pour le terminal
 RED="\033[91m"
 GREEN="\033[92m"
@@ -14,229 +9,122 @@ ENDC="\033[0m"
 
 # Vérification des droits root
 if [ "$(id -u)" -ne 0 ]; then
-  echo -e "${RED}Ce script doit être exécuté en tant que root.${ENDC}"
-  exit 1
-fi
-
-echo -e "${BLUE}=== Correction des problèmes de configuration de Postfix ===${ENDC}"
-
-# 1. Configurer smtpd_relay_restrictions et smtpd_recipient_restrictions
-echo -e "${YELLOW}Configuration des restrictions SMTP dans main.cf...${ENDC}"
-if grep -q "^smtpd_relay_restrictions" $MAIN_CF; then
-    sed -i "s/^smtpd_relay_restrictions.*/smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination/" $MAIN_CF
-else
-    echo "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination" >> $MAIN_CF
-fi
-
-if grep -q "^smtpd_recipient_restrictions" $MAIN_CF; then
-    sed -i "s/^smtpd_recipient_restrictions.*/smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination/" $MAIN_CF
-else
-    echo "smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination" >> $MAIN_CF
-fi
-
-echo -e "${GREEN}Restrictions SMTP configurées avec succès.${ENDC}"
-
-# 2. Créer /etc/aliases si nécessaire et générer /etc/aliases.db
-echo -e "${YELLOW}Vérification et création du fichier /etc/aliases...${ENDC}"
-if [ ! -f "$ALIASES" ]; then
-    echo "root:   admin@marketingtgv.com" > $ALIASES
-    echo -e "${GREEN}Fichier /etc/aliases créé.${ENDC}"
-else
-    echo -e "${GREEN}Fichier /etc/aliases existe déjà.${ENDC}"
-fi
-
-echo -e "${YELLOW}Génération de la base de données d'alias...${ENDC}"
-newaliases
-echo -e "${GREEN}Base de données d'alias générée avec succès.${ENDC}"
-
-# 3. Désactiver les recherches NIS si activées
-echo -e "${YELLOW}Désactivation des recherches NIS si elles sont activées...${ENDC}"
-if grep -q "^nis_domain" $MAIN_CF; then
-    sed -i "s/^nis_domain/#nis_domain/" $MAIN_CF
-    echo -e "${GREEN}Recherches NIS désactivées.${ENDC}"
-else
-    echo -e "${GREEN}Aucune recherche NIS activée. Aucun changement nécessaire.${ENDC}"
-fi
-
-# Redémarrer Postfix
-echo -e "${YELLOW}Redémarrage de Postfix...${ENDC}"
-systemctl restart postfix
-echo -e "${GREEN}Postfix redémarré avec succès.${ENDC}"
-
-echo -e "${BLUE}=== Configuration et correction des problèmes de Postfix terminées ===${ENDC}"
-
-# Exécution du reste du script de configuration Postfix
-
-# Fonction utilitaire pour exécuter une commande système
-execute_command() {
-    local command="$1"
-    local error_message="$2"
-    echo -e "${YELLOW}Exécution de la commande: ${command}${ENDC}"
-    if ! eval "$command"; then
-        echo -e "${RED}${error_message}${ENDC}"
-        exit 1
-    fi
-}
-
-# Vérification de l'installation de Postfix
-check_postfix_installation() {
-    echo -e "${YELLOW}Vérification de l'installation de Postfix...${ENDC}"
-    if [ ! -f "/usr/sbin/postfix" ]; then
-        echo -e "${RED}Postfix is not installed. Please install Postfix before running this script.${ENDC}"
-        exit 1
-    fi
-    
-    if [ ! -f "/etc/postfix/main.cf" ]; then
-        echo -e "${YELLOW}Fichier de configuration Postfix main.cf introuvable, création d'un fichier par défaut...${ENDC}"
-        execute_command "postconf -d > /etc/postfix/main.cf" "Échec de la création du fichier main.cf par défaut"
-    fi
-}
-
-# Validation du nom d'hôte
-validate_hostname() {
-    local hostname="$1"
-    pattern="^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9-]{2,})\.[A-Za-z]{2,}$"
-    if [[ ! $hostname =~ $pattern ]]; then
-        echo -e "${RED}Invalid hostname: ${hostname}${ENDC}"
-        exit 1
-    fi
-}
-
-# Validation de l'adresse email
-validate_email() {
-    local email="$1"
-    pattern="^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
-    if [[ ! $email =~ $pattern ]]; then
-        echo -e "${RED}Invalid email address: ${email}${ENDC}"
-        exit 1
-    fi
-}
-
-# Configuration générale de Postfix
-configure_postfix_general() {
-    local hostname="$1"
-    local email="$2"
-    echo -e "${YELLOW}Configuration générale de Postfix...${ENDC}"
-    declare -A settings=(
-        ["myhostname"]="$hostname"
-        ["myorigin"]="$email"
-        ["mydestination"]="localhost"
-        ["inet_interfaces"]="all"
-        ["inet_protocols"]="ipv4"
-        ["home_mailbox"]="Maildir/"
-        ["smtpd_sasl_type"]="dovecot"
-        ["smtpd_sasl_path"]="private/auth"
-        ["smtpd_sasl_auth_enable"]="yes"
-        ["broken_sasl_auth_clients"]="yes"
-    )
-    for key in "${!settings[@]}"; do
-        execute_command "postconf -e '${key} = ${settings[$key]}'" "Échec de la configuration de ${key}"
-    done
-}
-
-# Configuration des ports SMTP dans master.cf
-configure_postfix_ports() {
-    echo -e "${YELLOW}Configuration des ports SMTP de Postfix...${ENDC}"
-    master_cf_path="/etc/postfix/master.cf"
-
-    ports_config=$(cat <<EOF
-submission inet n       -       y       -       -       smtpd
-  -o smtpd_tls_security_level=may
-  -o smtpd_sasl_auth_enable=yes
-  -o smtpd_reject_unlisted_recipient=yes
-  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
-  -o milter_macro_daemon_name=ORIGINATING
-smtps     inet  n       -       y       -       -       smtpd
-  -o smtpd_tls_wrappermode=yes
-  -o smtpd_sasl_auth_enable=yes
-  -o smtpd_reject_unlisted_recipient=yes
-  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
-  -o milter_macro_daemon_name=ORIGINATING
-EOF
-    )
-    
-    echo "$ports_config" >> "$master_cf_path"
-    echo -e "${GREEN}Ports SMTP configurés avec succès dans master.cf.${ENDC}"
-}
-
-# Configuration de DKIM
-configure_dkim() {
-    local domain_name="$1"
-    echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
-    execute_command "mkdir -p /etc/opendkim/keys" "Échec de la création du répertoire des clés DKIM"
-    execute_command "opendkim-genkey -s mail -d $domain_name" "Échec de la génération des clés DKIM"
-    execute_command "mv mail.private /etc/opendkim/keys/${domain_name}.private" "Échec du déplacement de la clé privée"
-    execute_command "mv mail.txt /etc/opendkim/keys/${domain_name}.txt" "Échec du déplacement de l'enregistrement DKIM"
-    execute_command "chown opendkim:opendkim /etc/opendkim/keys/${domain_name}.private" "Échec de la configuration des permissions sur la clé privée"
-
-    echo "mail._domainkey.${domain_name} ${domain_name}:mail:/etc/opendkim/keys/${domain_name}.private" >> /etc/opendkim/KeyTable
-    echo "*@${domain_name} mail._domainkey.${domain_name}" >> /etc/opendkim/SigningTable
-    echo -e "127.0.0.1\nlocalhost\n${domain_name}" >> /etc/opendkim/TrustedHosts
-
-    execute_command "systemctl restart opendkim" "Échec du redémarrage de OpenDKIM"
-}
-
-# Finalisation de la configuration
-finalize_smtp_configuration() {
-    echo -e "${YELLOW}Finalisation de la configuration SMTP...${ENDC}"
-    execute_command "systemctl restart postfix" "Échec du redémarrage de Postfix"
-    execute_command "systemctl enable postfix" "Échec de l'activation de Postfix au démarrage"
-    execute_command "systemctl enable opendkim" "Échec de l'activation de OpenDKIM au démarrage"
-}
-
-# Sauvegarde des informations SMTP
-save_smtp_info() {
-    local domain_name="$1"
-    local email="$2"
-    echo -e "${YELLOW}Sauvegarde des informations SMTP...${ENDC}"
-    echo -e "SMTP Server: ${domain_name}\nEmail Address: ${email}\nPorts: 587 (Submission), 465 (SMTPS)" > /etc/postfix/smtp_info.txt
-    echo -e "${GREEN}Informations SMTP sauvegardées dans /etc/postfix/smtp_info.txt${ENDC}"
-}
-
-# Fonction pour envoyer un e-mail de test
-send_test_email() {
-    local smtp_server="$1"
-    local smtp_port="$2"
-    local email_sender="$3"
-    local email_recipient="$4"
-    echo -e "${YELLOW}Envoi d'un e-mail de test...${ENDC}"
-    subject="Test Email from Postfix Setup Script"
-    body="This is a test email sent to confirm that Postfix SMTP is working correctly."
-    
-    echo -e "Subject: $subject\n\n$body" | sendmail -f "$email_sender" "$email_recipient"
-
-    echo -e "${GREEN}Test email sent successfully.${ENDC}"
-}
-
-# Fonction principale
-main() {
-    echo -e "${BLUE}=== Postfix Setup Script ===${ENDC}"
-    read -p "$(echo -e ${YELLOW}Enter the hostname \(e.g., mail.example.com\): ${ENDC})" hostname
-    read -p "$(echo -e ${YELLOW}Enter the email address to use: ${ENDC})" email
-    domain_name=$(echo "$hostname" | awk -F. '{print $(NF-1)"."$NF}')
-    read -p "$(echo -e ${YELLOW}Enter the recipient email address for the test \(e.g., your-email@example.com\): ${ENDC})" test_email
-    
-    check_postfix_installation
-    validate_hostname "$hostname"
-    validate_email "$email"
-    validate_email "$test_email"
-
-    configure_postfix_general "$hostname" "$email"
-    configure_postfix_ports
-    configure_dkim "$domain_name"
-    finalize_smtp_configuration
-    save_smtp_info "$domain_name" "$email"
-    
-    # Envoi du mail de test
-    send_test_email "$hostname" 587 "$email" "$test_email"
-
-    echo -e "${GREEN}Postfix and DKIM have been successfully configured.${ENDC}"
-    echo -e "${YELLOW}All details have been saved in /etc/postfix/smtp_info.txt${ENDC}"
-}
-
-if [ "$(id -u)" -ne 0 ]; then
     echo -e "${RED}Ce script doit être exécuté en tant que root.${ENDC}"
     exit 1
-else
-    main
 fi
+
+echo -e "${BLUE}=== Configuration de Postfix pour l'envoi d'e-mails uniquement ===${ENDC}"
+
+# Variables de configuration
+DOMAIN="marketingtgv.com"
+HOSTNAME="mail.$DOMAIN"
+IP_ADDRESS="153.92.210.103"
+EMAIL="admin@$DOMAIN"
+DKIM_SELECTOR="mail"
+
+# Mise à jour et installation des paquets nécessaires
+echo -e "${YELLOW}Mise à jour du système et installation des paquets...${ENDC}"
+apt update && apt upgrade -y
+apt install -y postfix opendkim opendkim-tools mailutils
+
+# Configuration de Postfix
+echo -e "${YELLOW}Configuration de Postfix...${ENDC}"
+postconf -e "myhostname = $HOSTNAME"
+postconf -e "mydomain = $DOMAIN"
+postconf -e "myorigin = /etc/mailname"
+postconf -e "relayhost ="
+postconf -e "inet_interfaces = loopback-only"
+postconf -e "inet_protocols = ipv4"
+postconf -e "smtpd_banner = \$myhostname ESMTP \$mail_name"
+postconf -e "biff = no"
+postconf -e "append_dot_mydomain = no"
+postconf -e "readme_directory = no"
+postconf -e "smtpd_use_tls = yes"
+postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem"
+postconf -e "smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key"
+postconf -e "smtpd_tls_session_cache_database = btree:\${data_directory}/smtpd_scache"
+postconf -e "smtp_tls_session_cache_database = btree:\${data_directory}/smtp_scache"
+postconf -e "smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination"
+postconf -e "smtpd_recipient_restrictions = permit_mynetworks permit_sasl_authenticated reject_unauth_destination"
+postconf -e "smtpd_sasl_auth_enable = yes"
+postconf -e "smtpd_sasl_type = dovecot"
+postconf -e "smtpd_sasl_path = private/auth"
+postconf -e "smtpd_tls_auth_only = yes"
+postconf -e "smtpd_tls_security_level = may"
+postconf -e "smtpd_tls_loglevel = 1"
+postconf -e "smtpd_tls_received_header = yes"
+postconf -e "smtpd_tls_session_cache_timeout = 3600s"
+postconf -e "myhostname = $HOSTNAME"
+
+echo "$DOMAIN" > /etc/mailname
+
+# Configuration de DKIM
+echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
+mkdir -p /etc/opendkim/keys/$DOMAIN
+opendkim-genkey -s $DKIM_SELECTOR -d $DOMAIN
+mv $DKIM_SELECTOR.private /etc/opendkim/keys/$DOMAIN/
+mv $DKIM_SELECTOR.txt /etc/opendkim/keys/$DOMAIN/
+
+cat > /etc/opendkim.conf <<EOF
+Syslog                  yes
+UMask                   002
+Canonicalization        relaxed/simple
+Mode                    sv
+SubDomains              no
+Selector                $DKIM_SELECTOR
+Socket                  inet:12301@localhost
+PidFile                 /var/run/opendkim/opendkim.pid
+UserID                  opendkim:opendkim
+KeyTable                refile:/etc/opendkim/KeyTable
+SigningTable            refile:/etc/opendkim/SigningTable
+ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts
+InternalHosts           refile:/etc/opendkim/TrustedHosts
+EOF
+
+cat > /etc/opendkim/KeyTable <<EOF
+$DKIM_SELECTOR._domainkey.$DOMAIN $DOMAIN:$DKIM_SELECTOR:/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private
+EOF
+
+cat > /etc/opendkim/SigningTable <<EOF
+*@${DOMAIN} $DKIM_SELECTOR._domainkey.${DOMAIN}
+EOF
+
+cat > /etc/opendkim/TrustedHosts <<EOF
+127.0.0.1
+localhost
+$DOMAIN
+EOF
+
+systemctl restart opendkim
+systemctl enable opendkim
+
+# Configuration de Postfix pour utiliser DKIM
+postconf -e "milter_default_action = accept"
+postconf -e "milter_protocol = 6"
+postconf -e "smtpd_milters = inet:localhost:12301"
+postconf -e "non_smtpd_milters = inet:localhost:12301"
+
+systemctl restart postfix
+systemctl enable postfix
+
+echo -e "${GREEN}=== Configuration de Postfix et DKIM terminée ===${ENDC}"
+
+# Instructions pour configurer les DNS
+echo -e "${YELLOW}Pour relier votre domaine au serveur de messagerie, veuillez ajouter les enregistrements DNS suivants :${ENDC}"
+echo -e "${BLUE}1. Enregistrement A :${ENDC}"
+echo -e "${YELLOW}   Nom : mail${ENDC}"
+echo -e "${YELLOW}   Type : A${ENDC}"
+echo -e "${YELLOW}   Valeur : ${IP_ADDRESS}${ENDC}"
+echo -e "${BLUE}2. Enregistrement TXT pour SPF :${ENDC}"
+echo -e "${YELLOW}   Nom : @${ENDC}"
+echo -e "${YELLOW}   Type : TXT${ENDC}"
+echo -e "${YELLOW}   Valeur : \"v=spf1 a ip4:${IP_ADDRESS} ~all\"${ENDC}"
+echo -e "${BLUE}3. Enregistrement TXT pour DKIM :${ENDC}"
+DKIM_RECORD=$(cat /etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt)
+echo -e "${YELLOW}   Nom : ${DKIM_SELECTOR}._domainkey${ENDC}"
+echo -e "${YELLOW}   Type : TXT${ENDC}"
+echo -e "${YELLOW}   Valeur : $DKIM_RECORD${ENDC}"
+echo -e "${BLUE}4. Enregistrement DMARC :${ENDC}"
+echo -e "${YELLOW}   Nom : _dmarc${ENDC}"
+echo -e "${YELLOW}   Type : TXT${ENDC}"
+echo -e "${YELLOW}   Valeur : \"v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN; ruf=mailto:dmarc@$DOMAIN; sp=none; adkim=s; aspf=s\"${ENDC}"
