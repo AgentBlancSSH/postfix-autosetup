@@ -109,22 +109,12 @@ systemctl enable postfix
 
 echo -e "${GREEN}=== Configuration de Postfix et DKIM terminée ===${ENDC}"
 
-# Instructions pour configurer les DNS
-echo -e "${YELLOW}Pour relier votre domaine au serveur de messagerie, veuillez ajouter les enregistrements DNS suivants :${ENDC}"
-echo -e "${BLUE}1. Enregistrement A :${ENDC}"
-echo -e "${YELLOW}   Nom : mail${ENDC}"
-echo -e "${YELLOW}   Type : A${ENDC}"
-echo -e "${YELLOW}   Valeur : ${IP_ADDRESS}${ENDC}"
-echo -e "${BLUE}2. Enregistrement TXT pour SPF :${ENDC}"
-echo -e "${YELLOW}   Nom : @${ENDC}"
-echo -e "${YELLOW}   Type : TXT${ENDC}"
-echo -e "${YELLOW}   Valeur : \"v=spf1 a ip4:${IP_ADDRESS} ~all\"${ENDC}"
-echo -e "${BLUE}3. Enregistrement TXT pour DKIM :${ENDC}"
-DKIM_RECORD=$(cat /etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt)
-echo -e "${YELLOW}   Nom : ${DKIM_SELECTOR}._domainkey${ENDC}"
-echo -e "${YELLOW}   Type : TXT${ENDC}"
-echo -e "${YELLOW}   Valeur : $DKIM_RECORD${ENDC}"
-echo -e "${BLUE}4. Enregistrement DMARC :${ENDC}"
-echo -e "${YELLOW}   Nom : _dmarc${ENDC}"
-echo -e "${YELLOW}   Type : TXT${ENDC}"
-echo -e "${YELLOW}   Valeur : \"v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN; ruf=mailto:dmarc@$DOMAIN; sp=none; adkim=s; aspf=s\"${ENDC}"
+# Test d'envoi d'e-mail
+read -p "$(echo -e ${YELLOW}Entrez l'adresse e-mail de destination pour le test: ${ENDC})" test_email
+echo -e "Subject: Test SMTP\n\nCeci est un e-mail de test." | sendmail $test_email
+
+echo -e "${GREEN}E-mail de test envoyé à $test_email${ENDC}"
+
+# Vérifier les logs pour confirmer l'envoi
+echo -e "${YELLOW}Vérifiez les logs Postfix pour confirmer l'envoi de l'e-mail :${ENDC}"
+tail -f /var/log/mail.log
