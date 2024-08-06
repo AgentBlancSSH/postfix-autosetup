@@ -8,7 +8,7 @@ BLUE="\033[94m"
 ENDC="\033[0m"
 
 # Vérification des droits root
-if [ "$(id -u)" -ne 0 ]; alors
+if [ "$(id -u)" -ne 0 ]; then
     echo -e "${RED}Ce script doit être exécuté en tant que root.${ENDC}"
     exit 1
 fi
@@ -24,7 +24,7 @@ DKIM_SELECTOR="mail"
 
 # Fonction pour vérifier les erreurs
 check_error() {
-    if [ $? -ne 0 ]; alors
+    if [ $? -ne 0 ]; then
         echo -e "${RED}Une erreur est survenue lors de l'exécution du script.${ENDC}"
         exit 1
     fi
@@ -145,7 +145,7 @@ check_error
 echo -e "${GREEN}=== Configuration de Postfix et DKIM terminée ===${ENDC}"
 
 # Test d'envoi d'e-mail
-echo -n "$(echo -e ${YELLOW}Entrez l'adresse e-mail de destination pour le test: ${ENDC})"
+echo -e "${YELLOW}Entrez l'adresse e-mail de destination pour le test:${ENDC}"
 read test_email
 echo -e "Subject: Test SMTP\n\nCeci est un e-mail de test." | sendmail "$test_email"
 check_error
