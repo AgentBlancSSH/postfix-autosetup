@@ -54,7 +54,7 @@ fi
 print_colored "=== Configuration de l'enregistrement DMARC ===" $BLUE
 dmarc_record=$(dig +short TXT _dmarc.$domain)
 
-if [ -z "$dmarc_record" ]; then
+if [ -z "$dmarc_record"; then
     print_colored "Aucun enregistrement DMARC trouvé pour $domain." $RED
     print_colored "Vous devez ajouter l'enregistrement suivant à votre DNS:" $GREEN
     echo "v=DMARC1; p=none; rua=mailto:$dmarc_email"
