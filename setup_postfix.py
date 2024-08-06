@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 import logging
-import re  # Importation du module 're' pour les expressions régulières
+import re
 
 # Configuration des logs
 logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
@@ -54,18 +54,22 @@ def configure_postfix_general(hostname, email):
 
 def configure_postfix_ports():
     logging.info("Configuring Postfix SMTP ports...")
-    settings = {
-        'smtpd_tls_security_level': 'may',
-        'submission inet n       -       y       -       -       smtpd': '',
-        'smtps     inet  n       -       y       -       -       smtpd': '',
-        '  -o smtpd_tls_wrappermode=yes': '',
-        '  -o smtpd_sasl_auth_enable=yes': '',
-        '  -o smtpd_reject_unlisted_recipient=yes': '',
-        '  -o smtpd_client_restrictions=permit_sasl_authenticated,reject': '',
-        '  -o milter_macro_daemon_name=ORIGINATING': ''
-    }
-    for key, value in settings.items():
-        execute_command(f"postconf -Me '{key}'", f"Failed to set {key}")
+    ports_config = [
+        "submission inet n       -       y       -       -       smtpd",
+        "  -o smtpd_tls_security_level=may",
+        "  -o smtpd_sasl_auth_enable=yes",
+        "  -o smtpd_reject_unlisted_recipient=yes",
+        "  -o smtpd_client_restrictions=permit_sasl_authenticated,reject",
+        "  -o milter_macro_daemon_name=ORIGINATING",
+        "smtps     inet  n       -       y       -       -       smtpd",
+        "  -o smtpd_tls_wrappermode=yes",
+        "  -o smtpd_sasl_auth_enable=yes",
+        "  -o smtpd_reject_unlisted_recipient=yes",
+        "  -o smtpd_client_restrictions=permit_sasl_authenticated,reject",
+        "  -o milter_macro_daemon_name=ORIGINATING"
+    ]
+    for config in ports_config:
+        execute_command(f"postconf -P '{config}'", f"Failed to set port configuration: {config}")
 
 def configure_dkim(domain_name):
     logging.info("Configuring DKIM...")
