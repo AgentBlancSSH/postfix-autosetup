@@ -3,10 +3,19 @@ import subprocess
 import sys
 import logging
 import re
+import smtplib
+from email.mime.text import MIMEText
 
 # Configuration des logs
 logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Couleurs pour le terminal
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+ENDC = "\033[0m"
 
 # Fonction utilitaire pour exécuter une commande système
 def execute_command(command, error_message):
@@ -15,13 +24,13 @@ def execute_command(command, error_message):
         subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
         logging.error(f"{error_message}: {e}")
-        sys.exit(f"\033[91m{error_message}\033[0m")
+        sys.exit(f"{RED}{error_message}{ENDC}")
 
 # Vérification de l'installation de Postfix
 def check_postfix_installation():
     logging.info("Checking if Postfix is installed...")
     if not os.path.isfile('/usr/sbin/postfix'):
-        sys.exit("\033[91mPostfix is not installed. Please install Postfix before running this script.\033[0m")
+        sys.exit(f"{RED}Postfix is not installed. Please install Postfix before running this script.{ENDC}")
     
     if not os.path.isfile('/etc/postfix/main.cf'):
         logging.info("Postfix main configuration file not found, creating a default one...")
@@ -31,13 +40,13 @@ def check_postfix_installation():
 def validate_hostname(hostname):
     pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$"
     if not re.match(pattern, hostname):
-        sys.exit(f"\033[91mInvalid hostname: {hostname}\033[0m")
+        sys.exit(f"{RED}Invalid hostname: {hostname}{ENDC}")
 
 # Validation de l'adresse email
 def validate_email(email):
     pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
     if not re.match(pattern, email):
-        sys.exit(f"\033[91mInvalid email address: {email}\033[0m")
+        sys.exit(f"{RED}Invalid email address: {email}{ENDC}")
 
 # Configuration générale de Postfix
 def configure_postfix_general(hostname, email):
@@ -83,7 +92,7 @@ smtps     inet  n       -       y       -       -       smtpd
         logging.info("Successfully configured Postfix SMTP ports in master.cf.")
     except Exception as e:
         logging.error(f"Failed to configure Postfix SMTP ports: {e}")
-        sys.exit(f"\033[91mFailed to configure Postfix SMTP ports\033[0m")
+        sys.exit(f"{RED}Failed to configure Postfix SMTP ports{ENDC}")
 
 # Configuration de DKIM
 def configure_dkim(domain_name):
@@ -120,16 +129,41 @@ def save_smtp_info(domain_name, email):
         smtp_info.write(f"Email Address: {email}\n")
         smtp_info.write("Ports: 587 (Submission), 465 (SMTPS)\n")
 
+# Fonction pour envoyer un e-mail de test
+def send_test_email(smtp_server, smtp_port, email_sender, email_recipient):
+    logging.info("Sending a test email...")
+    subject = "Test Email from Postfix Setup Script"
+    body = "This is a test email sent to confirm that Postfix SMTP is working correctly."
+    
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = email_sender
+    msg['To'] = email_recipient
+
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.sendmail(email_sender, [email_recipient], msg.as_string())
+            logging.info("Test email sent successfully.")
+            print(f"{GREEN}Test email sent successfully.{ENDC}")
+    except Exception as e:
+        logging.error(f"Failed to send test email: {e}")
+        sys.exit(f"{RED}Failed to send test email: {e}{ENDC}")
+
 # Fonction principale
 def main():
-    print("\033[94m=== Postfix Setup Script ===\033[0m")
-    hostname = input("Enter the hostname (e.g., mail.example.com): ")
-    email = input("Enter the email address to use: ")
+    print(f"{BLUE}=== Postfix Setup Script ==={ENDC}")
+    hostname = input(f"{YELLOW}Enter the hostname (e.g., mail.example.com): {ENDC}")
+    email = input(f"{YELLOW}Enter the email address to use: {ENDC}")
     domain_name = '.'.join(hostname.split('.')[-2:])
+    test_email = input(f"{YELLOW}Enter the recipient email address for the test (e.g., your-email@example.com): {ENDC}")
     
     check_postfix_installation()
     validate_hostname(hostname)
     validate_email(email)
+    validate_email(test_email)
 
     configure_postfix_general(hostname, email)
     configure_postfix_ports()
@@ -137,8 +171,11 @@ def main():
     finalize_smtp_configuration()
     save_smtp_info(domain_name, email)
     
-    print("\033[92mPostfix and DKIM have been successfully configured.\033[0m")
-    print(f"\033[93mAll details have been saved in /etc/postfix/smtp_info.txt\033[0m")
+    # Envoi du mail de test
+    send_test_email(hostname, 587, email, test_email)
+
+    print(f"{GREEN}Postfix and DKIM have been successfully configured.{ENDC}")
+    print(f"{YELLOW}All details have been saved in /etc/postfix/smtp_info.txt{ENDC}")
 
 if __name__ == "__main__":
     main()
