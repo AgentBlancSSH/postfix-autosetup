@@ -65,13 +65,14 @@ opendkim-genkey -s $DKIM_SELECTOR -d $DOMAIN
 mv $DKIM_SELECTOR.private /etc/opendkim/keys/$DOMAIN/
 mv $DKIM_SELECTOR.txt /etc/opendkim/keys/$DOMAIN/
 
-cat > /etc/opendkim.conf <<EOF
+# Utilisation de cat << 'EOF' pour éviter les problèmes d'échappement des caractères
+cat << 'EODKIM' > /etc/opendkim.conf
 Syslog                  yes
 UMask                   002
 Canonicalization        relaxed/simple
 Mode                    sv
 SubDomains              no
-Selector                $DKIM_SELECTOR
+Selector                DKIM_SELECTOR
 Socket                  inet:12301@localhost
 PidFile                 /var/run/opendkim/opendkim.pid
 UserID                  opendkim:opendkim
@@ -79,7 +80,10 @@ KeyTable                refile:/etc/opendkim/KeyTable
 SigningTable            refile:/etc/opendkim/SigningTable
 ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts
 InternalHosts           refile:/etc/opendkim/TrustedHosts
-EOF
+EODKIM
+
+# Remplacement de la variable DKIM_SELECTOR dans le fichier de configuration
+sed -i "s/DKIM_SELECTOR/$DKIM_SELECTOR/" /etc/opendkim.conf
 
 cat > /etc/opendkim/KeyTable <<EOF
 $DKIM_SELECTOR._domainkey.$DOMAIN $DOMAIN:$DKIM_SELECTOR:/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private
