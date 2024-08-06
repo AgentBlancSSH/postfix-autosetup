@@ -95,7 +95,7 @@ check_postfix_installation() {
 # Validation du nom d'hôte
 validate_hostname() {
     local hostname="$1"
-    pattern="^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$"
+    pattern="^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9-]{2,})\.[A-Za-z]{2,}$"
     if [[ ! $hostname =~ $pattern ]]; then
         echo -e "${RED}Invalid hostname: ${hostname}${ENDC}"
         exit 1
