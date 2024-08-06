@@ -22,13 +22,25 @@ IP_ADDRESS="153.92.210.103"
 EMAIL="admin@$DOMAIN"
 DKIM_SELECTOR="mail"
 
+# Fonction pour vérifier les erreurs
+check_error() {
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Une erreur est survenue lors de l'exécution du script.${ENDC}"
+        exit 1
+    fi
+}
+
 # Mise à jour et installation des paquets nécessaires
 echo -e "${YELLOW}Mise à jour du système et installation des paquets...${ENDC}"
 apt update && apt upgrade -y
+check_error
+
 apt install -y postfix opendkim opendkim-tools mailutils
+check_error
 
 # Configuration de Postfix
 echo -e "${YELLOW}Configuration de Postfix...${ENDC}"
+
 postconf -e "myhostname = $HOSTNAME"
 postconf -e "mydomain = $DOMAIN"
 postconf -e "myorigin = /etc/mailname"
@@ -55,24 +67,32 @@ postconf -e "smtpd_tls_loglevel = 1"
 postconf -e "smtpd_tls_received_header = yes"
 postconf -e "smtpd_tls_session_cache_timeout = 3600s"
 postconf -e "myhostname = $HOSTNAME"
+check_error
 
 echo "$DOMAIN" > /etc/mailname
+check_error
 
-# Configuration de DKIM
-echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
-mkdir -p /etc/opendkim/keys/$DOMAIN
-opendkim-genkey -s $DKIM_SELECTOR -d $DOMAIN
-mv $DKIM_SELECTOR.private /etc/opendkim/keys/$DOMAIN/
-mv $DKIM_SELECTOR.txt /etc/opendkim/keys/$DOMAIN/
+# Fonction pour configurer DKIM
+configure_dkim() {
+    echo -e "${YELLOW}Configuration de DKIM...${ENDC}"
 
-# Utilisation de cat << 'EOF' pour éviter les problèmes d'échappement des caractères
-cat << 'EODKIM' > /etc/opendkim.conf
+    mkdir -p /etc/opendkim/keys/$DOMAIN
+    check_error
+
+    opendkim-genkey -s $DKIM_SELECTOR -d $DOMAIN
+    check_error
+
+    mv $DKIM_SELECTOR.private /etc/opendkim/keys/$DOMAIN/
+    mv $DKIM_SELECTOR.txt /etc/opendkim/keys/$DOMAIN/
+    check_error
+
+    cat > /etc/opendkim.conf <<EODKIM
 Syslog                  yes
 UMask                   002
 Canonicalization        relaxed/simple
 Mode                    sv
 SubDomains              no
-Selector                DKIM_SELECTOR
+Selector                $DKIM_SELECTOR
 Socket                  inet:12301@localhost
 PidFile                 /var/run/opendkim/opendkim.pid
 UserID                  opendkim:opendkim
@@ -81,41 +101,55 @@ SigningTable            refile:/etc/opendkim/SigningTable
 ExternalIgnoreList      refile:/etc/opendkim/TrustedHosts
 InternalHosts           refile:/etc/opendkim/TrustedHosts
 EODKIM
+    check_error
 
-# Remplacement de la variable DKIM_SELECTOR dans le fichier de configuration
-sed -i "s/DKIM_SELECTOR/$DKIM_SELECTOR/" /etc/opendkim.conf
-
-cat > /etc/opendkim/KeyTable <<EOF
+    cat > /etc/opendkim/KeyTable <<EOF
 $DKIM_SELECTOR._domainkey.$DOMAIN $DOMAIN:$DKIM_SELECTOR:/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private
 EOF
+    check_error
 
-cat > /etc/opendkim/SigningTable <<EOF
+    cat > /etc/opendkim/SigningTable <<EOF
 *@${DOMAIN} $DKIM_SELECTOR._domainkey.${DOMAIN}
 EOF
+    check_error
 
-cat > /etc/opendkim/TrustedHosts <<EOF
+    cat > /etc/opendkim/TrustedHosts <<EOF
 127.0.0.1
 localhost
 $DOMAIN
 EOF
+    check_error
 
-systemctl restart opendkim
-systemctl enable opendkim
+    systemctl restart opendkim
+    check_error
+
+    systemctl enable opendkim
+    check_error
+}
+
+# Appel de la fonction de configuration DKIM
+configure_dkim
 
 # Configuration de Postfix pour utiliser DKIM
+echo -e "${YELLOW}Configuration de Postfix pour utiliser DKIM...${ENDC}"
 postconf -e "milter_default_action = accept"
 postconf -e "milter_protocol = 6"
 postconf -e "smtpd_milters = inet:localhost:12301"
 postconf -e "non_smtpd_milters = inet:localhost:12301"
+check_error
 
 systemctl restart postfix
+check_error
+
 systemctl enable postfix
+check_error
 
 echo -e "${GREEN}=== Configuration de Postfix et DKIM terminée ===${ENDC}"
 
 # Test d'envoi d'e-mail
 read -p "$(echo -e ${YELLOW}Entrez l'adresse e-mail de destination pour le test: ${ENDC})" test_email
 echo -e "Subject: Test SMTP\n\nCeci est un e-mail de test." | sendmail $test_email
+check_error
 
 echo -e "${GREEN}E-mail de test envoyé à $test_email${ENDC}"
 
