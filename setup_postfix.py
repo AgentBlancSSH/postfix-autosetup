@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import logging
+import re  # Importation du module 're' pour les expressions régulières
 
 # Configuration des logs
 logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
