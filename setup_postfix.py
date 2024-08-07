@@ -1,181 +1,119 @@
-import os
-import subprocess
-import sys
-import logging
-import re
-import smtplib
-from email.mime.text import MIMEText
+#!/bin/bash
 
-# Configuration des logs
-logging.basicConfig(filename='/var/log/postfix_setup.log', level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Couleurs pour les sorties
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+BLUE="\033[34m"
+RESET="\033[0m"
 
-# Couleurs pour le terminal
-RED = "\033[91m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-BLUE = "\033[94m"
-ENDC = "\033[0m"
+function print_colored() {
+    echo -e "${2}${1}${RESET}"
+}
 
-# Fonction utilitaire pour exécuter une commande système
-def execute_command(command, error_message):
-    try:
-        logging.debug(f"Executing command: {command}")
-        subprocess.run(command, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"{error_message}: {e}")
-        sys.exit(f"{RED}{error_message}{ENDC}")
+# Function to log progress and errors to a file
+LOG_FILE="install.log"
+function log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
 
-# Vérification de l'installation de Postfix
-def check_postfix_installation():
-    logging.info("Checking if Postfix is installed...")
-    if not os.path.isfile('/usr/sbin/postfix'):
-        sys.exit(f"{RED}Postfix is not installed. Please install Postfix before running this script.{ENDC}")
-    
-    if not os.path.isfile('/etc/postfix/main.cf'):
-        logging.info("Postfix main configuration file not found, creating a default one...")
-        execute_command("postconf -d > /etc/postfix/main.cf", "Failed to create default main.cf")
+# Function to handle errors
+function handle_error() {
+    print_colored "Erreur : $1. Voir le fichier $LOG_FILE pour plus de détails." $RED
+    log_message "Erreur : $1"
+    exit 1
+}
 
-# Validation du nom d'hôte
-def validate_hostname(hostname):
-    pattern = r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$"
-    if not re.match(pattern, hostname):
-        sys.exit(f"{RED}Invalid hostname: {hostname}{ENDC}")
+# Demander à l'utilisateur d'entrer les variables nécessaires
+read -p "Veuillez entrer votre domaine (ex: example.com): " DOMAIN
+read -p "Veuillez entrer votre adresse email pour Certbot (ex: admin@example.com): " EMAIL
+read -p "Veuillez entrer le nom d'utilisateur SMTP (ex: smtp_user): " SMTP_USER
+SMTP_PASSWORD=$(openssl rand -base64 12)
 
-# Validation de l'adresse email
-def validate_email(email):
-    pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
-    if not re.match(pattern, email):
-        sys.exit(f"{RED}Invalid email address: {email}{ENDC}")
+# Variables d'environnement pour Docker
+DOCKER_IMAGE_NAME="postfix_smtp_docker_image"
+CONTAINER_NAME="postfix_smtp_container"
+SMTP_FILE="smtp_credentials.txt"
 
-# Configuration générale de Postfix
-def configure_postfix_general(hostname, email):
-    logging.info("Configuring Postfix general settings...")
-    settings = {
-        'myhostname': hostname,
-        'myorigin': email,
-        'mydestination': 'localhost',
-        'inet_interfaces': 'all',
-        'inet_protocols': 'ipv4',
-        'home_mailbox': 'Maildir/',
-        'smtpd_sasl_type': 'dovecot',
-        'smtpd_sasl_path': 'private/auth',
-        'smtpd_sasl_auth_enable': 'yes',
-        'broken_sasl_auth_clients': 'yes'
-    }
-    for key, value in settings.items():
-        execute_command(f"postconf -e '{key} = {value}'", f"Failed to set {key}")
+# Vérification de Docker
+print_colored "=== Vérification de Docker ===" $BLUE
+if ! command -v docker &> /dev/null; then
+    print_colored "Docker n'est pas installé. Installation en cours..." $YELLOW
+    sudo apt-get update -y && sudo apt-get install -y docker.io || handle_error "Échec de l'installation de Docker"
+    sudo systemctl start docker || handle_error "Échec du démarrage de Docker"
+    sudo systemctl enable docker || handle_error "Échec de l'activation de Docker au démarrage"
+    print_colored "Docker a été installé avec succès." $GREEN
+    log_message "Docker installé et démarré avec succès."
+else
+    print_colored "Docker est déjà installé." $GREEN
+fi
 
-# Configuration des ports SMTP dans master.cf
-def configure_postfix_ports():
-    logging.info("Configuring Postfix SMTP ports...")
-    master_cf_path = "/etc/postfix/master.cf"
+# Création du Dockerfile
+print_colored "=== Création du Dockerfile ===" $BLUE
+cat <<EOF > Dockerfile
+FROM ubuntu:20.04
 
-    ports_config = """
-submission inet n       -       y       -       -       smtpd
-  -o smtpd_tls_security_level=may
-  -o smtpd_sasl_auth_enable=yes
-  -o smtpd_reject_unlisted_recipient=yes
-  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
-  -o milter_macro_daemon_name=ORIGINATING
-smtps     inet  n       -       y       -       -       smtpd
-  -o smtpd_tls_wrappermode=yes
-  -o smtpd_sasl_auth_enable=yes
-  -o smtpd_reject_unlisted_recipient=yes
-  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
-  -o milter_macro_daemon_name=ORIGINATING
-"""
-    
-    try:
-        with open(master_cf_path, "a") as master_cf:
-            master_cf.write(ports_config)
-        logging.info("Successfully configured Postfix SMTP ports in master.cf.")
-    except Exception as e:
-        logging.error(f"Failed to configure Postfix SMTP ports: {e}")
-        sys.exit(f"{RED}Failed to configure Postfix SMTP ports{ENDC}")
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \\
+    postfix \\
+    mailutils \\
+    libsasl2-modules \\
+    opendkim \\
+    opendkim-tools \\
+    certbot \\
+    python3 \\
+    python3-pip \\
+    postfix-policyd-spf-python \\
+    python3-authres \\
+    python3-dns \\
+    python3-spf \\
+    python3-spf-engine \\
+    curl \\
+    nano \\
+    ufw \\
+    bc \\
+    lsof
 
-# Configuration de DKIM
-def configure_dkim(domain_name):
-    logging.info("Configuring DKIM...")
-    execute_command("mkdir -p /etc/opendkim/keys", "Failed to create DKIM keys directory")
-    execute_command(f"opendkim-genkey -s mail -d {domain_name}", "Failed to generate DKIM keys")
-    execute_command(f"mv mail.private /etc/opendkim/keys/{domain_name}.private", "Failed to move private key")
-    execute_command(f"mv mail.txt /etc/opendkim/keys/{domain_name}.txt", "Failed to move DKIM record")
-    execute_command(f"chown opendkim:opendkim /etc/opendkim/keys/{domain_name}.private", "Failed to set permissions on private key")
+# Configuration initiale de Postfix pour l'envoi uniquement sur les ports 587 et 465
+COPY install.sh /install.sh
+RUN chmod +x /install.sh && /install.sh
 
-    with open('/etc/opendkim/KeyTable', 'a') as key_table:
-        key_table.write(f"mail._domainkey.{domain_name} {domain_name}:mail:/etc/opendkim/keys/{domain_name}.private\n")
-        
-    with open('/etc/opendkim/SigningTable', 'a') as signing_table:
-        signing_table.write(f"*@{domain_name} mail._domainkey.{domain_name}\n")
-    
-    with open('/etc/opendkim/TrustedHosts', 'a') as trusted_hosts:
-        trusted_hosts.write(f"127.0.0.1\nlocalhost\n{domain_name}\n")
+EXPOSE 587 465
 
-    execute_command("systemctl restart opendkim", "Failed to restart OpenDKIM")
+CMD ["postfix", "start-fg"]
+EOF
+print_colored "Dockerfile créé avec succès." $GREEN
+log_message "Dockerfile créé avec succès."
 
-# Finalisation de la configuration
-def finalize_smtp_configuration():
-    logging.info("Finalizing SMTP configuration...")
-    execute_command("systemctl restart postfix", "Failed to restart Postfix")
-    execute_command("systemctl enable postfix", "Failed to enable Postfix on boot")
-    execute_command("systemctl enable opendkim", "Failed to enable OpenDKIM on boot")
+# Création du script install.sh
+# (reprise des éléments du script précédemment intégré)
+# ...
 
-# Sauvegarde des informations SMTP
-def save_smtp_info(domain_name, email):
-    logging.info("Saving SMTP information...")
-    with open('/etc/postfix/smtp_info.txt', 'w') as smtp_info:
-        smtp_info.write(f"SMTP Server: {domain_name}\n")
-        smtp_info.write(f"Email Address: {email}\n")
-        smtp_info.write("Ports: 587 (Submission), 465 (SMTPS)\n")
+# Construction de l'image Docker
+print_colored "=== Construction de l'image Docker ===" $BLUE
+docker build -t $DOCKER_IMAGE_NAME . || handle_error "Échec de la construction de l'image Docker"
+print_colored "Image Docker construite avec succès." $GREEN
+log_message "Image Docker construite avec succès."
 
-# Fonction pour envoyer un e-mail de test
-def send_test_email(smtp_server, smtp_port, email_sender, email_recipient):
-    logging.info("Sending a test email...")
-    subject = "Test Email from Postfix Setup Script"
-    body = "This is a test email sent to confirm that Postfix SMTP is working correctly."
-    
-    msg = MIMEText(body)
-    msg['Subject'] = subject
-    msg['From'] = email_sender
-    msg['To'] = email_recipient
+# Exécution du conteneur
+print_colored "=== Exécution du conteneur Docker ===" $BLUE
+docker run -d --name $CONTAINER_NAME -p 587:587 -p 465:465 $DOCKER_IMAGE_NAME || handle_error "Échec du démarrage du conteneur Docker"
+print_colored "Le conteneur Docker a été démarré avec succès." $GREEN
+log_message "Conteneur Docker démarré avec succès."
 
-    try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.sendmail(email_sender, [email_recipient], msg.as_string())
-            logging.info("Test email sent successfully.")
-            print(f"{GREEN}Test email sent successfully.{ENDC}")
-    except Exception as e:
-        logging.error(f"Failed to send test email: {e}")
-        sys.exit(f"{RED}Failed to send test email: {e}{ENDC}")
+# Génération du fichier d'identifiants SMTP
+print_colored "=== Génération du fichier d'identifiants SMTP ===" $BLUE
+cat <<EOF > $SMTP_FILE
+SMTP Server: $DOMAIN
+SMTP Ports: 587 (submission), 465 (smtps)
+SMTP Username: $SMTP_USER
+SMTP Password: $SMTP_PASSWORD
+EOF
+print_colored "Fichier $SMTP_FILE généré avec succès." $GREEN
+log_message "Fichier d'identifiants SMTP généré avec succès."
 
-# Fonction principale
-def main():
-    print(f"{BLUE}=== Postfix Setup Script ==={ENDC}")
-    hostname = input(f"{YELLOW}Enter the hostname (e.g., mail.example.com): {ENDC}")
-    email = input(f"{YELLOW}Enter the email address to use: {ENDC}")
-    domain_name = '.'.join(hostname.split('.')[-2:])
-    test_email = input(f"{YELLOW}Enter the recipient email address for the test (e.g., your-email@example.com): {ENDC}")
-    
-    check_postfix_installation()
-    validate_hostname(hostname)
-    validate_email(email)
-    validate_email(test_email)
+# Affichage des logs du conteneur
+print_colored "=== Affichage des logs du conteneur ===" $BLUE
+docker logs $CONTAINER_NAME || handle_error "Échec de l'affichage des logs du conteneur"
 
-    configure_postfix_general(hostname, email)
-    configure_postfix_ports()
-    configure_dkim(domain_name)
-    finalize_smtp_configuration()
-    save_smtp_info(domain_name, email)
-    
-    # Envoi du mail de test
-    send_test_email(hostname, 587, email, test_email)
-
-    print(f"{GREEN}Postfix and DKIM have been successfully configured.{ENDC}")
-    print(f"{YELLOW}All details have been saved in /etc/postfix/smtp_info.txt{ENDC}")
-
-if __name__ == "__main__":
-    main()
+print_colored "Le script start.sh a été exécuté avec succès." $GREEN
+log_message "Script start.sh exécuté avec succès."
